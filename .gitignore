@@ -1,0 +1,5 @@
+/_jobs/
+*/__pycache__/
+Data/
+Models/
+Scripts/hypatia/*
