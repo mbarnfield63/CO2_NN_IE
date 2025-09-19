@@ -107,23 +107,8 @@ print("Model saved to Models/co2_ie_model.pt")
 # === Predictions
 y_true, y_pred, abs_err, signed_err = get_predictions(model, test_loader, DEVICE)
 
-# Unscale E_IE in test_df for final calculations
-test_df[SCALED_COLS] = scaler.inverse_transform(test_df[SCALED_COLS])
-
-# Apply the NN correction to get corrected energies
-test_df["E_Ma_iso"] = E_Ma_iso_test  # True value from dataset
-test_df["E_IE_original"] = test_df["E_IE"]  # Store original simple calculation
-test_df["NN_correction"] = y_pred  # This is the predicted correction
-test_df["E_IE_corrected"] = test_df["E_IE_original"] + test_df["NN_correction"]
-
-# Calculate errors against the true value E_Ma_iso
-test_df["Original_error"] =  test_df["E_Ma_iso"] - test_df["E_IE_original"]  # true - calculated
-test_df["Corrected_error"] = test_df["E_Ma_iso"] - test_df["E_IE_corrected"]  # true - corrected
-test_df["Original_abs_error"] = np.abs(test_df["Original_error"])
-test_df["Corrected_abs_error"] = np.abs(test_df["Corrected_error"])
-test_df["Error_reduction_pct"] = 100 * (test_df["Original_abs_error"] - test_df["Corrected_abs_error"]) / test_df["Original_abs_error"]
-
-test_df.to_csv(os.path.join(OUTPUT_DIR, "CSVs/test_predictions.csv"), index=False)
+# Post-processing test_df
+post_processing(test_df, scaler, SCALED_COLS, y_pred, E_Ma_iso_test, OUTPUT_DIR)
 
 # Isotopologue analysis
 print("\nAnalyzing isotopologue-specific errors...")

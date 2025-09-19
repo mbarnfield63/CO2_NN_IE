@@ -1,8 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import os
-import pandas as pd
-from matplotlib.gridspec import GridSpec
+import seaborn as sns
 
 
 def plot_loss(train_losses, val_losses, output_dir):
@@ -20,18 +19,24 @@ def plot_loss(train_losses, val_losses, output_dir):
     plt.close()
 
 
-def plot_predictions_vs_true(y_true, y_pred, output_dir):
+def plot_predictions_vs_true(y_true, y_pred, output_dir, cv=False, all_preds_df=None):
     os.makedirs(os.path.join(output_dir, "Plots/Errors"), exist_ok=True)
 
     plt.figure(figsize=(6, 6))
-    plt.scatter(y_true, y_pred, s=10, alpha=0.5, color="purple")
     lims = [min(y_true.min(), y_pred.min()), max(y_true.max(), y_pred.max())]
-    plt.plot(lims, lims, "k--", lw=2)  # y=x line
+    sns.lineplot(x=lims, y=lims, linestyle='--', lw=2, color='black')  # y=x line
+    if cv == True:
+        sns.scatterplot(data=all_preds_df, x="y_true", y="y_pred", hue="fold", palette="tab10", s=10, alpha=0.5)
+    else:
+        sns.scatterplot(data=None, x=y_true, y=y_pred, s=10, alpha=0.5, color="purple")
     plt.xlabel("True Energy")
     plt.ylabel("Predicted Energy")
     plt.title("Predicted vs True Energy")
     plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, "Plots/Errors/pred_vs_true.png"))
+    if cv == True:
+        plt.savefig(os.path.join(output_dir, "Plots/Errors/pred_vs_true_cv.png"))
+    else:
+        plt.savefig(os.path.join(output_dir, "Plots/Errors/pred_vs_true.png"))
     plt.close()
 
 

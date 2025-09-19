@@ -6,7 +6,8 @@ from torch.utils.data import DataLoader
 from torch import optim
 from sklearn.model_selection import KFold
 
-from model_utils import CO2Dataset, CO2EnergyRegressorSingle, train, evaluate
+from model_utils import CO2Dataset, CO2EnergyRegressorSingle, train, evaluate, get_predictions
+from plotting import plot_predictions_vs_true
 
 # === Config
 DATA_PATH = "Data/CO2_minor_isos_ma.txt"
@@ -40,6 +41,7 @@ print(f"Loaded dataset with {len(df)} samples.")
 # === Cross-validation
 kf = KFold(n_splits=K_FOLDS, shuffle=True, random_state=42)
 fold_results = []
+all_preds = []  # to collect per-sample predictions across folds
 
 for fold, (train_idx, val_idx) in enumerate(kf.split(df)):
     print(f"\n=== Fold {fold+1}/{K_FOLDS} ===")
@@ -66,6 +68,15 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(df)):
     print(f"Fold {fold+1}:\n  Val RMSE: {val_rmse:.4f}\n  MAE: {val_mae:.4f}")
     fold_results.append({"fold": fold+1, "val_rmse": val_rmse, "val_mae": val_mae})
 
+    # Collect predictions for this fold
+    y_true, y_pred, _, _ = get_predictions(model, val_loader, DEVICE)
+    fold_preds = pd.DataFrame({
+        "fold": fold+1,
+        "y_true": y_true,
+        "y_pred": y_pred
+    })
+    all_preds.append(fold_preds)
+
 # === Results
 results_df = pd.DataFrame(fold_results)
 mean_rmse = results_df["val_rmse"].mean()
@@ -83,4 +94,10 @@ with open(os.path.join(OUTPUT_DIR, "cv_summary.txt"), "w") as f:
     f.write(f"Cross-validation RMSE: {mean_rmse:.4f} ± {std_rmse:.4f}\n")
     f.write(f"Cross-validation MAE: {mean_mae:.4f} ± {std_mae:.4f}\n")
 
-print(f"\nResults saved to {OUTPUT_DIR}")
+# Save combined predictions
+all_preds_df = pd.concat(all_preds, ignore_index=True)
+all_preds_df.to_csv(os.path.join(OUTPUT_DIR, "cv_predictions.csv"), index=False)
+
+# Plot all predictions vs truth
+plot_predictions_vs_true(y_true, y_pred, OUTPUT_DIR, cv=True, all_preds_df=all_preds_df)
+print(f"\nResults and plots saved to {OUTPUT_DIR}")
