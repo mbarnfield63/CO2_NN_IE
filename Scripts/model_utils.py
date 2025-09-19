@@ -208,11 +208,12 @@ def evaluate(
         y_pred = np.concatenate(preds)
         y_true = np.concatenate(trues)
         rmse = float(np.sqrt(np.mean((y_pred - y_true) ** 2)))
+        mae = float(np.mean(np.abs(y_pred - y_true)))
     else:
         rmse = float("nan")
 
     avg_loss = total_loss / max(1, len(dataloader))
-    return avg_loss, rmse
+    return avg_loss, rmse, mae
 
 
 # ===== Outputs

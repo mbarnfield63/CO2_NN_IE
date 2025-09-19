@@ -79,7 +79,7 @@ train_losses, val_losses = [], []
 
 for epoch in range(EPOCHS):
     train_loss = train(model, train_loader, optimizer, DEVICE)
-    val_loss, val_rmse = evaluate(model, val_loader, DEVICE)
+    val_loss, val_rmse, val_mae = evaluate(model, val_loader, DEVICE)
 
     train_losses.append(train_loss)
     val_losses.append(val_loss)
@@ -88,7 +88,8 @@ for epoch in range(EPOCHS):
         f"Epoch {epoch+1:2d}/{EPOCHS} | "
         f"Train Loss: {train_loss:.4f} | "
         f"Val Loss: {val_loss:.4f} | "
-        f"Val RMSE: {val_rmse:.4f}"
+        f"Val RMSE: {val_rmse:.4f} | "
+        f"Val MAE: {val_mae:.4f}"
     )
 
 print("\n" + "=" * 60)
@@ -96,8 +97,8 @@ print("MODEL PERFORMANCE:")
 print("=" * 60)
 
 # === Test evaluation
-test_loss, test_rmse = evaluate(model, test_loader, DEVICE)
-print(f"\nTest Loss: {test_loss:.4f} | Test RMSE: {test_rmse:.4f}")
+test_loss, test_rmse, test_mae = evaluate(model, test_loader, DEVICE)
+print(f"\nTest Loss: {test_loss:.4f}:\n  Test RMSE: {test_rmse:.4f}\n  Test MAE: {test_mae:.4f}")
 
 # Save model
 torch.save(model.state_dict(), "Models/co2_ie_model.pt")
