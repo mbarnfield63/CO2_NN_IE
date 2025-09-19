@@ -177,15 +177,13 @@ if __name__ == "__main__":
 
     # Prepare main isotopologue data for matching
     main_ma = ma_files[626].copy()
-    main_ca = ca_files[626].copy()
     
     # Create matching keys
     main_ma = create_matching_key(main_ma)
-    main_ca = create_matching_key(main_ca)
     
     # Create lookup dictionaries for main isotopologue energies
     main_ma_lookup = main_ma.set_index('match_key')['E'].to_dict()
-    main_ca_lookup = main_ca.set_index('match_key')['E'].to_dict()
+    main_ca_lookup = main_ma.set_index('match_key')['E_Ca'].to_dict()
 
     # Process minor isotopologues
     final_dfs = []
@@ -212,7 +210,8 @@ if __name__ == "__main__":
             print(f"  Dropped {initial_count - final_count} unmatched records for isotopologue {iso}")
         
         # Rename energy columns
-        ma_df.rename(columns={'E': 'E_Ma_iso'}, inplace=True)
+        ma_df.rename(columns={'E': 'E_Ma_iso',
+                              'E_Ca': 'E_Ca_iso'}, inplace=True)
         
         # Drop the matching key as it's no longer needed
         ma_df.drop(columns=['match_key'], inplace=True)
@@ -230,6 +229,10 @@ if __name__ == "__main__":
     
     # Prepare atomic features
     combined_df = prepare_atomic_features(combined_df)
+
+    # IE column
+    combined_df['E_IE'] = combined_df['E_Ca_iso'] + combined_df['E_Ma_main'] - combined_df['E_Ca_main']
+    combined_df['Error_IE'] = combined_df['E_Ma_iso'] - combined_df['E_IE']
 
     # Columns to drop
     columns_to_drop = ['ID', 'unc', '??', 'Source']
