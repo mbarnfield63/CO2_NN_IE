@@ -33,8 +33,10 @@ os.makedirs("Models", exist_ok=True)
 FEATURE_COLS = [
     "E_IE", "E_Ca_iso", "E_Ca_main", "E_Ma_main", "gtot", "J",
     "AFGL_m1", "AFGL_m2", "AFGL_l2", "AFGL_r",
+    "hzb_v1", "hzb_v2", "hzb_v3", "hzb_l2",
     "Trove_v1", "Trove_v2", "Trove_v3", "Trove_coeff",
-    "mu1", "mu2", "mu3", "mu_all", "mu1_ratio", "mu2_ratio", "mu3_ratio", "mu_all_ratio",
+    "mu1", "mu2", "mu3", "mu_all", 
+    "mu1_ratio", "mu2_ratio", "mu3_ratio", "mu_all_ratio",
     "mass_c_12.0", "mass_c_13.003355",
     "mass_o_1_15.994915", "mass_o_1_16.999132", "mass_o_1_17.999161",
     "mass_o_2_15.994915", "mass_o_2_16.999132", "mass_o_2_17.999161",
