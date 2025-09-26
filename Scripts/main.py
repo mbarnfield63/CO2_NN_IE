@@ -141,16 +141,13 @@ plot_loss(train_losses, val_losses, OUTPUT_DIR)
 plot_predictions_vs_true(y_true, y_pred, OUTPUT_DIR)
 
 # Isotopologue plot
-plot_isotopologue_comparison(iso_results, OUTPUT_DIR)
+plot_mae_bars(iso_results, OUTPUT_DIR)
+plot_metrics_bars(iso_results, OUTPUT_DIR)
 
 # Feature importance
 print("\nCalculating feature importance...")
 feature_importance_df = get_feature_importance(model, test_loader, DEVICE, FEATURE_COLS, OUTPUT_DIR)
 feature_importance_df.to_csv(os.path.join(OUTPUT_DIR, "CSVs/feature_importance.csv"))
-
-# Isotopologue energy distributions and residuals
-plot_iso_residuals_all(test_df, output_dir=OUTPUT_DIR)
-plot_iso_residuals_individual(test_df, output_dir=OUTPUT_DIR)
 
 # Print results summary
 print(f"\nOriginal MAE: {test_df['Original_abs_error'].mean():.6f}")
@@ -160,6 +157,12 @@ print(f"Overall MAE Improvement: {overall_pct_improvement:.2f}%")
 
 improved_samples = (test_df['Error_reduction_pct'] > 0).sum()
 print(f"Samples with improvement: {improved_samples}/{len(test_df)} ({100*improved_samples/len(test_df):.2f}%)")
+
+# Isotopologue energy distributions and residuals
+plot_iso_residuals_all(test_df, overall_pct_improvement, output_dir=OUTPUT_DIR)
+plot_iso_residuals_individual(test_df, output_dir=OUTPUT_DIR)
+plot_residuals_boxplot(test_df, output_dir=OUTPUT_DIR)
+plot_hist_error_energy(test_df, energy_col='E_Ma_iso', output_dir=OUTPUT_DIR)
 
 # === Final summary
 end_time = time.time()

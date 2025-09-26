@@ -63,6 +63,11 @@ def load_data(
     df = df.dropna(subset=required_cols + (["iso"] if "iso" in df.columns else []))
     print(f"Dataset after dropping NaNs: {len(df)} samples.")
 
+    # Drop rows where iso == 636
+    if "iso" in df.columns:
+        df = df[df["iso"] != 636].reset_index(drop=True)
+        print(f"Dataset after dropping iso=636: {len(df)} samples.")
+
     # Store original energy values before any processing for plotting/splitting
     original_energy_col = "E_IE_original"
     df[original_energy_col] = df["E_IE"].copy()

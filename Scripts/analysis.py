@@ -20,12 +20,14 @@ def analyze_isotopologue_errors(test_df):
         mask = test_df['iso'] == iso
         original_mae = mean_absolute_error(test_df['E_Ma_iso'][mask], test_df['E_IE_original'][mask])
         corrected_mae = mean_absolute_error(test_df['E_Ma_iso'][mask], test_df['E_IE_corrected'][mask])
-        rmse = root_mean_squared_error(test_df['E_Ma_iso'][mask], test_df['E_IE_corrected'][mask])
+        original_rmse = root_mean_squared_error(test_df['E_Ma_iso'][mask], test_df['E_IE_original'][mask])
+        corrected_rmse = root_mean_squared_error(test_df['E_Ma_iso'][mask], test_df['E_IE_corrected'][mask])
         bias = np.mean(test_df['Original_error'][mask] - test_df['Corrected_error'][mask])
         results[iso] = {
             "Original MAE": original_mae,
             "Corrected MAE": corrected_mae,
-            "RMSE": rmse,
+            "Original RMSE": original_rmse,
+            "Corrected RMSE": corrected_rmse,
             "Bias": bias,
             "Count": mask.sum(),
         }

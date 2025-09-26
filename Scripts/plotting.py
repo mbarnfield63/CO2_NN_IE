@@ -27,7 +27,10 @@ def plot_predictions_vs_true(y_true, y_pred, output_dir, metrics=True, cv=False,
     if cv == True:
         sns.scatterplot(data=all_preds_df, x="y_true", y="y_pred", hue="fold", palette="tab10", s=10, alpha=0.5)
         lims = [min(all_preds_df["y_true"].min(), all_preds_df["y_pred"].min()), max(all_preds_df["y_true"].max(), all_preds_df["y_pred"].max())]
-        
+        plt.legend(title="Fold No.",
+                   title_fontsize=12,
+                   fontsize=10,
+                   loc='lower right')
         if metrics:
           r2 = r2_score(all_preds_df["y_true"], all_preds_df["y_pred"])
           rmse = np.sqrt(np.mean((all_preds_df["y_true"] - all_preds_df["y_pred"]) ** 2))
@@ -55,7 +58,7 @@ def plot_predictions_vs_true(y_true, y_pred, output_dir, metrics=True, cv=False,
     plt.close()
 
 
-def plot_iso_residuals_all(test_df, energy_col='E_Ma_iso', n_col=3, output_dir=None):
+def plot_iso_residuals_all(test_df, overall_pct_improvement, energy_col='E_Ma_iso', n_col=4, output_dir=None):
     """
     Plot energy distributions based on the original energy values for each isotopologue.
     """
@@ -79,7 +82,6 @@ def plot_iso_residuals_all(test_df, energy_col='E_Ma_iso', n_col=3, output_dir=N
    
     colors = ['blue', 'orange']
  
-     
     for idx, iso in enumerate(all_isos):
         row = idx // n_col
         col = idx % n_col
@@ -104,8 +106,7 @@ def plot_iso_residuals_all(test_df, energy_col='E_Ma_iso', n_col=3, output_dir=N
         mean_reduction = 100 * (test_df["Original_abs_error"][iso_mask].mean() - \
                                 test_df["Corrected_abs_error"][iso_mask].mean()) / \
                                 test_df["Original_abs_error"][iso_mask].mean()
-
-               
+              
         ax.text(0.05, 0.05, f'Iso: {iso}\nReduction: {mean_reduction:.2f}%',
                 transform=ax.transAxes, fontsize=16, va='bottom')
        
@@ -119,10 +120,11 @@ def plot_iso_residuals_all(test_df, energy_col='E_Ma_iso', n_col=3, output_dir=N
         ax.grid(True, alpha=0.3)
    
     # Add legend to the last row, last column axis
-    last_ax = axes[-1, -1]
+    penultimate_ax = axes[-1, -2]
     axes[-1, -1].axis('off')
+    axes[-1, -2].axis('off')
     handles, labels = axes[0, 0].get_legend_handles_labels()
-    last_ax.legend(
+    penultimate_ax.legend(
         handles,
         labels,
         loc='upper center',
@@ -133,6 +135,10 @@ def plot_iso_residuals_all(test_df, energy_col='E_Ma_iso', n_col=3, output_dir=N
         title='Residuals',
         title_fontsize=25
     )
+
+    mae_reduction_text = f"Overall Error Improvement\n{overall_pct_improvement:.2f}%"
+    penultimate_ax.text(0.5, 0.5, mae_reduction_text, transform=penultimate_ax.transAxes,
+                        fontsize=20, va='top', ha='center')
    
     plt.tight_layout()
    
@@ -183,8 +189,8 @@ def plot_iso_residuals_individual(test_df, energy_col='E_Ma_iso', output_dir=Non
         plt.tight_layout()
         
         if output_dir:
-            os.makedirs(os.path.join(output_dir, "Plots/Isotopologues"), exist_ok=True)
-            plt.savefig(os.path.join(output_dir, f"Plots/Isotopologues/{iso}_residuals.png"),
+            os.makedirs(os.path.join(output_dir, "Plots/Isotopologues/Individual"), exist_ok=True)
+            plt.savefig(os.path.join(output_dir, f"Plots/Isotopologues/Individual/{iso}_residuals.png"),
                         dpi=300, bbox_inches='tight')
         plt.close()
 
@@ -206,21 +212,7 @@ def plot_feature_importance(df, output_dir):
     plt.close()
 
 
-def plot_isotopologue_comparison(results, output_dir, figsize=(8, 6)):
-    """
-    Compare isotopologue errors across multiple metrics (e.g., MAE vs RMSE).
-
-    Parameters
-    ----------
-    results : dict
-        Output from analyze_isotopologue_errors
-    output_dir : str
-        Directory to save plots
-    metrics : tuple
-        Which metrics to compare
-    figsize : tuple
-        Size of the figure
-    """
+def plot_mae_bars(results, output_dir, figsize=(8, 6)):
     isotopologues = sorted(results.keys())
     maes = ['Original MAE', 'Corrected MAE']
     x = np.arange(len(isotopologues))
@@ -241,6 +233,109 @@ def plot_isotopologue_comparison(results, output_dir, figsize=(8, 6)):
     plt.grid(axis="y", alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, "Plots/Errors/isotopologue_error_comparison.png"),
+    plt.savefig(os.path.join(output_dir, "Plots/Errors/mae_bars.png"),
                 dpi=300, bbox_inches="tight")
+    plt.close()
+
+
+def plot_metrics_bars(results, output_dir, figsize=(8, 6)):
+    isotopologues = sorted(results.keys())
+    metrics = ['Original MAE', 'Corrected MAE', 'Original RMSE', 'Corrected RMSE']
+    x = np.arange(len(isotopologues))
+    width = 0.2
+
+    plt.figure(figsize=figsize)
+
+    colors = plt.cm.Set2(np.linspace(0, 1, len(metrics)))
+    for i, metric in enumerate(metrics):
+        values = [results[iso][metric] for iso in isotopologues]
+        plt.bar(x + i * width, values, width, label=metric, color=colors[i], alpha=0.8)
+
+    plt.xticks(x + width * (len(metrics)-1) / 2, isotopologues)
+    plt.ylabel("Error")
+    plt.xlabel("Isotopologue (OCO notation)")
+    plt.title("Isotopologue Error Comparison", fontsize=14, fontweight="bold")
+    plt.legend()
+    plt.grid(axis="y", alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, "Plots/Errors/mae_rmse_bars.png"),
+                dpi=300, bbox_inches="tight")
+    plt.close()
+
+
+def plot_residuals_boxplot(test_df, output_dir=None):
+    """
+    Create two box plots (before and after correction) for all isotopologues.
+    """
+    all_isos = sorted(test_df['iso'].unique())
+    data_original = []
+    data_corrected = []
+
+    for iso in all_isos:
+        iso_mask = test_df['iso'] == iso
+        data_original.append(test_df["Original_error"][iso_mask])
+        data_corrected.append(test_df["Corrected_error"][iso_mask])
+
+    fig, axes = plt.subplots(2, 1, figsize=(2.5*len(all_isos), 10), sharex=True)
+
+    # Original residuals boxplot
+    box1 = axes[0].boxplot(data_original, patch_artist=True,
+                           boxprops=dict(facecolor='lightblue', color='blue'),
+                           medianprops=dict(color='red'))
+    axes[0].axhline(0, color='black', linestyle='--')
+    axes[0].set_ylabel('Residual (Obs - Calc)')
+    axes[0].text(0.02, 0.02, 'Original IE Method Residuals', transform=axes[0].transAxes,
+                 fontsize=22, fontweight='bold', va='bottom', ha='left')
+
+    # Corrected residuals boxplot
+    box2 = axes[1].boxplot(data_corrected, patch_artist=True,
+                           boxprops=dict(facecolor='lightgreen', color='green'),
+                           medianprops=dict(color='red'))
+    axes[1].axhline(0, color='black', linestyle='--')
+    axes[1].set_ylabel('Residual (Obs - Calc)')
+    axes[1].text(0.02, 0.02, 'Residuals after ML Correction', transform=axes[1].transAxes,
+                 fontsize=22, fontweight='bold', va='bottom', ha='left')
+
+    axes[1].set_xticks(range(1, len(all_isos)+1))
+    axes[1].set_xticklabels(all_isos, rotation=45, ha='right', fontsize=16)
+    axes[1].set_xlabel('Isotopologue')
+
+    for ax in axes:
+        ax.set_ylim(-0.1, 0.15)
+
+    plt.tight_layout()
+
+    if output_dir:
+        os.makedirs(os.path.join(output_dir, "Plots/Isotopologues"), exist_ok=True)
+        plt.savefig(os.path.join(output_dir, "Plots/Isotopologues/residuals_boxplot.png"),
+                    dpi=300, bbox_inches='tight')
+    plt.close()
+
+
+def plot_hist_error_energy(test_df, energy_col='E_Ma_iso', output_dir=None):
+    os.makedirs(os.path.join(output_dir, "Plots/Errors"), exist_ok=True)
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 6), sharey=True)
+
+    # Histogram of original errors
+    axes[0].hist(test_df["Original_error"], bins=50, color='lightblue', edgecolor='blue', alpha=0.7)
+    axes[0].axvline(0, color='black', linestyle='--')
+    axes[0].set_xlabel('Residual (Obs - Calc)')
+    axes[0].set_ylabel('Count')
+    axes[0].set_title('Original IE Method Residuals')
+
+    # Histogram of corrected errors
+    axes[1].hist(test_df["Corrected_error"], bins=50, color='lightgreen', edgecolor='green', alpha=0.7)
+    axes[1].axvline(0, color='black', linestyle='--')
+    axes[1].set_xlabel('Residual (Obs - Calc)')
+    axes[1].set_title('Residuals after ML Correction')
+
+    for ax in axes:
+        ax.set_xlim(-0.1, 0.1)
+
+    plt.subplots_adjust(wspace=0)
+    if output_dir:
+        plt.savefig(os.path.join(output_dir, "Plots/Errors/hist_error_energy.png"),
+                    dpi=300, bbox_inches='tight')
     plt.close()
