@@ -105,14 +105,14 @@ def load_data(
 
 # ===== Model
 class CO2EnergyRegressorSingle(nn.Module):
-    def __init__(self, input_dim: int, dropout=0.3):
+    def __init__(self, input_dim: int, dropout: float = 0.3):
         super().__init__()
         self.shared = nn.Sequential(
             nn.Linear(input_dim, 1024),
             nn.GELU(),
             nn.Linear(1024, 1024),
             nn.GELU(),
-            nn.Dropout(dropout),        
+            nn.Dropout(dropout),
             nn.Linear(1024, 512),
             nn.GELU(),
             nn.Dropout(dropout),
@@ -121,7 +121,7 @@ class CO2EnergyRegressorSingle(nn.Module):
             nn.Dropout(dropout),
             nn.Linear(256, 128),
             nn.GELU(),
-            nn.Dropout(dropout),          
+            nn.Dropout(dropout),
             nn.Linear(128, 64),
             nn.GELU(),
             nn.Dropout(dropout),
@@ -134,13 +134,30 @@ class CO2EnergyRegressorSingle(nn.Module):
     def forward(self, x):
         return self.shared(x)
 
+    def init_output_bias(self, bias_value: float = 0.0):
+        """
+        Set the bias of the final Linear layer to `bias_value`.
+        This helps anchor initial predictions to a sensible value (e.g. train mean).
+        """
+        # last layer is the last module in the sequential (Linear(32,1))
+        last_linear = None
+        # traverse modules from end to find last nn.Linear
+        for module in reversed(list(self.shared)):
+            if isinstance(module, nn.Linear):
+                last_linear = module
+                break
+        if last_linear is None:
+            raise RuntimeError("No Linear layer found to init bias.")
+        with torch.no_grad():
+            last_linear.bias.fill_(float(bias_value))
+
 
 # ===== Loss function
 def compute_loss(outputs, targets, **kwargs):
     """
     Standard MSE loss for regression.
     """
-    return nn.MSELoss()(outputs, targets)
+    return nn.SmoothL1Loss()(outputs, targets)
 
 
 # ===== Train/Eval
@@ -214,6 +231,53 @@ def evaluate(
 
     avg_loss = total_loss / max(1, len(dataloader))
     return avg_loss, rmse, mae
+
+
+# ===== Debug utilities
+def get_weight_norms(model: nn.Module):
+    total_param_norm = 0.0
+    total_grad_norm = 0.0
+    for p in model.parameters():
+        param_norm = float(p.data.norm(2).item())
+        total_param_norm += param_norm ** 2
+        if p.grad is not None:
+            grad_norm = float(p.grad.data.norm(2).item())
+            total_grad_norm += grad_norm ** 2
+    total_param_norm = float(total_param_norm ** 0.5)
+    total_grad_norm = float(total_grad_norm ** 0.5)
+    return total_param_norm, total_grad_norm
+
+
+
+def predict_batch(model: nn.Module, X_tensor: torch.Tensor, device: torch.device):
+    model.eval()
+    X = X_tensor.to(device)
+    with torch.no_grad():
+        y = model(X).view(-1).cpu().numpy()
+    return y
+
+
+def train_and_return_debug(
+    model: nn.Module,
+    dataloader,
+    optimizer: torch.optim.Optimizer,
+    device: torch.device,
+):
+    model.train()
+    param_norm_before, grad_norm_before = get_weight_norms(model)
+    total_loss = 0.0
+    for X, y in dataloader:
+        X = X.to(device)
+        y = y.to(device)
+        optimizer.zero_grad()
+        outputs = model(X)
+        loss = compute_loss(outputs, y)
+        loss.backward()
+        optimizer.step()
+        total_loss += float(loss.item())
+    param_norm_after, grad_norm_after = get_weight_norms(model)
+    avg_loss = total_loss / max(1, len(dataloader))
+    return avg_loss, param_norm_before, grad_norm_before, param_norm_after, grad_norm_after
 
 
 # ===== Outputs

@@ -1,6 +1,7 @@
 import numpy as np
 import os
 import pandas as pd
+import random
 import time
 import torch
 from torch.utils.data import DataLoader
@@ -14,6 +15,19 @@ from plotting import *
 start_time = time.time()
 print("Time start:", time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(start_time)))
 print("Current device:", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU")
+
+# === Reproducibility ===
+SEED = 42
+np.random.seed(SEED)
+torch.manual_seed(SEED)
+random.seed(SEED)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed(SEED)
+    torch.cuda.manual_seed_all(SEED)
+
+# Ensure deterministic behavior in PyTorch
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
 
 # === Config
 DATA_PATH = "Data/CO2_minor_isos_ma.txt"
@@ -60,11 +74,18 @@ val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE)
 test_loader = DataLoader(test_ds, batch_size=BATCH_SIZE)
 
 # === Model
-model = CO2EnergyRegressorSingle(len(FEATURE_COLS)).to(DEVICE)
+model = CO2EnergyRegressorSingle(len(FEATURE_COLS), dropout=0.3).to(DEVICE)
+
+# Initialize final bias to training target mean
+train_targets = train_df[TARGET_COL].values.astype(np.float32)
+mean_target = float(np.mean(train_targets))
+model.init_output_bias(mean_target)
+
 optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
 print(f"\nModel created with {len(FEATURE_COLS)} input features.")
 print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
+print(f"Initialized final bias to train target mean = {mean_target:.6f}")
 
 # === Train
 print("\n" + "=" * 60)
@@ -79,13 +100,15 @@ for epoch in range(EPOCHS):
     train_losses.append(train_loss)
     val_losses.append(val_loss)
 
-    print(
-        f"Epoch {epoch+1:2d}/{EPOCHS} | "
-        f"Train Loss: {train_loss:.4f} | "
-        f"Val Loss: {val_loss:.4f} | "
-        f"Val RMSE: {val_rmse:.4f} | "
-        f"Val MAE: {val_mae:.4f}"
-    )
+    if (epoch + 1) % 10 == 0 or epoch == 0 or epoch == EPOCHS:
+        print(
+            f"Epoch {epoch+1:2d}/{EPOCHS} | "
+            f"Train Loss: {train_loss:.6f} | "
+            f"Val Loss: {val_loss:.6f} | "
+            f"Val RMSE: {val_rmse:.6f} | "
+            f"Val MAE: {val_mae:.6f}"
+        )
+
 
 print("\n" + "=" * 60)
 print("MODEL PERFORMANCE:")
