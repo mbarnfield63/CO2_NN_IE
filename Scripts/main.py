@@ -23,16 +23,11 @@ LEARNING_RATE = 1e-3
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 OUTPUT_DIR = "Data/Outputs"
 
-# Create directories
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-os.makedirs(os.path.join(OUTPUT_DIR, "CSVs"), exist_ok=True)
-os.makedirs(os.path.join(OUTPUT_DIR, "Plots"), exist_ok=True)
-os.makedirs("Models", exist_ok=True)
-
 # === Columns
 FEATURE_COLS = [
     "E_IE", "E_Ca_iso", "E_Ca_main", "E_Ma_main", "gtot", "J",
-    "AFGL_m1", "AFGL_m2", "AFGL_l2", "AFGL_r",
+    "AFGL_m1", "AFGL_m2", "AFGL_l2", "AFGL_m3", "AFGL_r",
+    "hzb_v1", "hzb_v2", "hzb_l2", "hzb_v3",
     "Trove_v1", "Trove_v2", "Trove_v3", "Trove_coeff",
     "mu1", "mu2", "mu3", "mu_all", "mu1_ratio", "mu2_ratio", "mu3_ratio", "mu_all_ratio",
     "mass_c_12.0", "mass_c_13.003355",

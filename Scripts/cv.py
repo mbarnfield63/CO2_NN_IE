@@ -6,12 +6,12 @@ from torch.utils.data import DataLoader
 from torch import optim
 from sklearn.model_selection import KFold
 
-from model_utils import CO2Dataset, CO2EnergyRegressorSingle, train, evaluate, get_predictions
+from model_utils import CO2Dataset, CO2EnergyRegressorSingle, train, evaluate, get_predictions, load_data
 from plotting import plot_predictions_vs_true
 
 # === Config
 DATA_PATH = "Data/CO2_minor_isos_ma.txt"
-OUTPUT_DIR = "Data/Outputs/CV"
+OUTPUT_DIR = "Data/Outputs/"
 FEATURE_COLS = [
     "E_IE", "E_Ca_iso", "E_Ca_main", "E_Ma_main", "gtot", "J",
     "AFGL_m1", "AFGL_m2", "AFGL_l2", "AFGL_r",
@@ -22,9 +22,10 @@ FEATURE_COLS = [
     "mass_o_2_15.994915", "mass_o_2_16.999132", "mass_o_2_17.999161",
     "e", "f", "Sym_Adp", "Sym_Ap", "Sym_A1", "Sym_A2",
 ]
+SCALED_COLS = ["E_IE", "E_Ca_iso", "E_Ca_main", "E_Ma_main", "gtot", "J"]
 TARGET_COL = "Error_IE"
 
-BATCH_SIZE = 512
+BATCH_SIZE = 128   # smaller batch size for better gradient signal
 EPOCHS = 50
 LEARNING_RATE = 1e-3
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -32,11 +33,24 @@ K_FOLDS = 5
 
 # Create output directory
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+os.makedirs(os.path.join(OUTPUT_DIR, "CSVs"), exist_ok=True)
 
-# === Load full dataset
+# === Load dataset (scaled)
 df = pd.read_csv(DATA_PATH)
 df = df.dropna(subset=FEATURE_COLS + [TARGET_COL])
 print(f"Loaded dataset with {len(df)} samples.")
+
+# Apply scaling to SCALED_COLS only
+_, _, _, scaler, _ = load_data(
+    DATA_PATH,
+    FEATURE_COLS,
+    SCALED_COLS,
+    target_col=TARGET_COL,
+    output_dir=None,
+)
+
+# Apply scaler to full df (so CV splits are consistent)
+df.loc[:, SCALED_COLS] = scaler.transform(df[SCALED_COLS])
 
 # === Cross-validation
 kf = KFold(n_splits=K_FOLDS, shuffle=True, random_state=42)
@@ -57,7 +71,7 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(df)):
 
     # Init model + optimizer
     model = CO2EnergyRegressorSingle(len(FEATURE_COLS)).to(DEVICE)
-    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-5)
 
     # Train
     for epoch in range(EPOCHS):
@@ -88,16 +102,10 @@ print("\n=== Cross-validation summary ===")
 print(f"RMSE: {mean_rmse:.4f} ± {std_rmse:.4f}")
 print(f"MAE: {mean_mae:.4f} ± {std_mae:.4f}")
 
-# Save results
-results_df.to_csv(os.path.join(OUTPUT_DIR, "cv_results.csv"), index=False)
-with open(os.path.join(OUTPUT_DIR, "cv_summary.txt"), "w") as f:
-    f.write(f"Cross-validation RMSE: {mean_rmse:.4f} ± {std_rmse:.4f}\n")
-    f.write(f"Cross-validation MAE: {mean_mae:.4f} ± {std_mae:.4f}\n")
-
 # Save combined predictions
 all_preds_df = pd.concat(all_preds, ignore_index=True)
-all_preds_df.to_csv(os.path.join(OUTPUT_DIR, "cv_predictions.csv"), index=False)
+all_preds_df.to_csv(os.path.join(OUTPUT_DIR, "CSVs/cv_predictions.csv"), index=False)
 
-# Plot all predictions vs truth
-plot_predictions_vs_true(y_true, y_pred, OUTPUT_DIR, cv=True, all_preds_df=all_preds_df)
+# Plot all predictions vs truth (use all_preds_df only)
+plot_predictions_vs_true(None, None, OUTPUT_DIR, cv=True, all_preds_df=all_preds_df)
 print(f"\nResults and plots saved to {OUTPUT_DIR}")

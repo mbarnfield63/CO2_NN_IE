@@ -23,12 +23,14 @@ def plot_predictions_vs_true(y_true, y_pred, output_dir, cv=False, all_preds_df=
     os.makedirs(os.path.join(output_dir, "Plots/Errors"), exist_ok=True)
 
     plt.figure(figsize=(6, 6))
-    lims = [min(y_true.min(), y_pred.min()), max(y_true.max(), y_pred.max())]
-    sns.lineplot(x=lims, y=lims, linestyle='--', lw=2, color='black')  # y=x line
     if cv == True:
         sns.scatterplot(data=all_preds_df, x="y_true", y="y_pred", hue="fold", palette="tab10", s=10, alpha=0.5)
+        lims = [min(all_preds_df["y_true"].min(), all_preds_df["y_pred"].min()), max(all_preds_df["y_true"].max(), all_preds_df["y_pred"].max())]
     else:
         sns.scatterplot(data=None, x=y_true, y=y_pred, s=10, alpha=0.5, color="purple")
+        lims = [min(min(y_true), min(y_pred)), max(max(y_true), max(y_pred))]
+
+    sns.lineplot(x=lims, y=lims, linestyle='--', lw=2, color='black')  # y=x line   
     plt.xlabel("True Energy")
     plt.ylabel("Predicted Energy")
     plt.title("Predicted vs True Energy")
