@@ -2,8 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 import pandas as pd
-from matplotlib.gridspec import GridSpec
-
+from sklearn.metrics import r2_score
 
 def plot_loss(train_losses, val_losses, output_dir):
     os.makedirs(os.path.join(output_dir, "Plots/Training"), exist_ok=True)
@@ -20,12 +19,17 @@ def plot_loss(train_losses, val_losses, output_dir):
     plt.close()
 
 
-def plot_predictions_vs_true(y_true, y_pred, output_dir):
+def plot_predictions_vs_true(y_true, y_pred, output_dir, metrics=True):
     os.makedirs(os.path.join(output_dir, "Plots/Errors"), exist_ok=True)
 
     plt.figure(figsize=(6, 6))
     plt.scatter(y_true, y_pred, s=10, alpha=0.5, color="purple")
     lims = [min(y_true.min(), y_pred.min()), max(y_true.max(), y_pred.max())]
+    if metrics:
+        r2 = r2_score(y_true, y_pred)
+        rmse = np.sqrt(np.mean((y_true - y_pred) ** 2))
+        plt.text(0.05, 0.95, f'$R^2$: {r2:.4f}\nRMSE: {rmse:.4f}', transform=plt.gca().transAxes,
+                 fontsize=12, verticalalignment='top')
     plt.plot(lims, lims, "k--", lw=2)  # y=x line
     plt.xlabel("True Energy")
     plt.ylabel("Predicted Energy")
