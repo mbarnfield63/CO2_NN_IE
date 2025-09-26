@@ -1,6 +1,7 @@
 import numpy as np
 import os
 import pandas as pd
+import random
 import time
 import torch
 from torch.utils.data import DataLoader
@@ -15,6 +16,19 @@ start_time = time.time()
 print("Time start:", time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(start_time)))
 print("Current device:", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU")
 
+# === Reproducibility ===
+SEED = 42
+np.random.seed(SEED)
+torch.manual_seed(SEED)
+random.seed(SEED)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed(SEED)
+    torch.cuda.manual_seed_all(SEED)
+
+# Ensure deterministic behavior in PyTorch
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+
 # === Config
 DATA_PATH = "Data/CO2_minor_isos_ma.txt"
 BATCH_SIZE = 512
@@ -23,17 +37,11 @@ LEARNING_RATE = 1e-3
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 OUTPUT_DIR = "Data/Outputs"
 
-# Create directories
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-os.makedirs(os.path.join(OUTPUT_DIR, "CSVs"), exist_ok=True)
-os.makedirs(os.path.join(OUTPUT_DIR, "Plots"), exist_ok=True)
-os.makedirs("Models", exist_ok=True)
-
 # === Columns
 FEATURE_COLS = [
     "E_IE", "E_Ca_iso", "E_Ca_main", "E_Ma_main", "gtot", "J",
-    "AFGL_m1", "AFGL_m2", "AFGL_l2", "AFGL_r",
-    "hzb_v1", "hzb_v2", "hzb_v3", "hzb_l2",
+    "AFGL_m1", "AFGL_m2", "AFGL_l2", "AFGL_m3", "AFGL_r",
+    "hzb_v1", "hzb_v2", "hzb_l2", "hzb_v3",
     "Trove_v1", "Trove_v2", "Trove_v3", "Trove_coeff",
     "mu1", "mu2", "mu3", "mu_all", 
     "mu1_ratio", "mu2_ratio", "mu3_ratio", "mu_all_ratio",
@@ -67,11 +75,18 @@ val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE)
 test_loader = DataLoader(test_ds, batch_size=BATCH_SIZE)
 
 # === Model
-model = CO2EnergyRegressorSingle(len(FEATURE_COLS)).to(DEVICE)
+model = CO2EnergyRegressorSingle(len(FEATURE_COLS), dropout=0.3).to(DEVICE)
+
+# Initialize final bias to training target mean
+train_targets = train_df[TARGET_COL].values.astype(np.float32)
+mean_target = float(np.mean(train_targets))
+model.init_output_bias(mean_target)
+
 optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
 print(f"\nModel created with {len(FEATURE_COLS)} input features.")
 print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
+print(f"Initialized final bias to train target mean = {mean_target:.6f}")
 
 # === Train
 print("\n" + "=" * 60)
@@ -81,25 +96,28 @@ train_losses, val_losses = [], []
 
 for epoch in range(EPOCHS):
     train_loss = train(model, train_loader, optimizer, DEVICE)
-    val_loss, val_rmse = evaluate(model, val_loader, DEVICE)
+    val_loss, val_rmse, val_mae = evaluate(model, val_loader, DEVICE)
 
     train_losses.append(train_loss)
     val_losses.append(val_loss)
 
-    print(
-        f"Epoch {epoch+1:2d}/{EPOCHS} | "
-        f"Train Loss: {train_loss:.4f} | "
-        f"Val Loss: {val_loss:.4f} | "
-        f"Val RMSE: {val_rmse:.4f}"
-    )
+    if (epoch + 1) % 10 == 0 or epoch == 0 or epoch == EPOCHS:
+        print(
+            f"Epoch {epoch+1:2d}/{EPOCHS} | "
+            f"Train Loss: {train_loss:.6f} | "
+            f"Val Loss: {val_loss:.6f} | "
+            f"Val RMSE: {val_rmse:.6f} | "
+            f"Val MAE: {val_mae:.6f}"
+        )
+
 
 print("\n" + "=" * 60)
 print("MODEL PERFORMANCE:")
 print("=" * 60)
 
 # === Test evaluation
-test_loss, test_rmse = evaluate(model, test_loader, DEVICE)
-print(f"\nTest Loss: {test_loss:.4f} | Test RMSE: {test_rmse:.4f}")
+test_loss, test_rmse, test_mae = evaluate(model, test_loader, DEVICE)
+print(f"\nTest Loss: {test_loss:.4f}:\n  Test RMSE: {test_rmse:.4f}\n  Test MAE: {test_mae:.4f}")
 
 # Save model
 torch.save(model.state_dict(), "Models/co2_ie_model.pt")
@@ -108,23 +126,8 @@ print("Model saved to Models/co2_ie_model.pt")
 # === Predictions
 y_true, y_pred, abs_err, signed_err = get_predictions(model, test_loader, DEVICE)
 
-# Unscale E_IE in test_df for final calculations
-test_df[SCALED_COLS] = scaler.inverse_transform(test_df[SCALED_COLS])
-
-# Apply the NN correction to get corrected energies
-test_df["E_Ma_iso"] = E_Ma_iso_test  # True value from dataset
-test_df["E_IE_original"] = test_df["E_IE"]  # Store original simple calculation
-test_df["NN_correction"] = y_pred  # This is the predicted correction
-test_df["E_IE_corrected"] = test_df["E_IE_original"] + test_df["NN_correction"]
-
-# Calculate errors against the true value E_Ma_iso
-test_df["Original_error"] =  test_df["E_Ma_iso"] - test_df["E_IE_original"]  # true - calculated
-test_df["Corrected_error"] = test_df["E_Ma_iso"] - test_df["E_IE_corrected"]  # true - corrected
-test_df["Original_abs_error"] = np.abs(test_df["Original_error"])
-test_df["Corrected_abs_error"] = np.abs(test_df["Corrected_error"])
-test_df["Error_reduction_pct"] = 100 * (test_df["Original_abs_error"] - test_df["Corrected_abs_error"]) / test_df["Original_abs_error"]
-
-test_df.to_csv(os.path.join(OUTPUT_DIR, "CSVs/test_predictions.csv"), index=False)
+# Post-processing test_df
+post_processing(test_df, scaler, SCALED_COLS, y_pred, E_Ma_iso_test, OUTPUT_DIR)
 
 # Isotopologue analysis
 print("\nAnalyzing isotopologue-specific errors...")

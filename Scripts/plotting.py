@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+import seaborn as sns
 import pandas as pd
 from sklearn.metrics import r2_score
 
@@ -19,23 +20,38 @@ def plot_loss(train_losses, val_losses, output_dir):
     plt.close()
 
 
-def plot_predictions_vs_true(y_true, y_pred, output_dir, metrics=True):
+def plot_predictions_vs_true(y_true, y_pred, output_dir, metrics=True, cv=False, all_preds_df=None):
     os.makedirs(os.path.join(output_dir, "Plots/Errors"), exist_ok=True)
 
     plt.figure(figsize=(6, 6))
-    plt.scatter(y_true, y_pred, s=10, alpha=0.5, color="purple")
-    lims = [min(y_true.min(), y_pred.min()), max(y_true.max(), y_pred.max())]
-    if metrics:
-        r2 = r2_score(y_true, y_pred)
-        rmse = np.sqrt(np.mean((y_true - y_pred) ** 2))
-        plt.text(0.05, 0.95, f'$R^2$: {r2:.4f}\nRMSE: {rmse:.4f}', transform=plt.gca().transAxes,
-                 fontsize=12, verticalalignment='top')
-    plt.plot(lims, lims, "k--", lw=2)  # y=x line
+    if cv == True:
+        sns.scatterplot(data=all_preds_df, x="y_true", y="y_pred", hue="fold", palette="tab10", s=10, alpha=0.5)
+        lims = [min(all_preds_df["y_true"].min(), all_preds_df["y_pred"].min()), max(all_preds_df["y_true"].max(), all_preds_df["y_pred"].max())]
+        
+        if metrics:
+          r2 = r2_score(all_preds_df["y_true"], all_preds_df["y_pred"])
+          rmse = np.sqrt(np.mean((all_preds_df["y_true"] - all_preds_df["y_pred"]) ** 2))
+          plt.text(0.05, 0.95, f'$R^2$: {r2:.4f}\nRMSE: {rmse:.4f}', transform=plt.gca().transAxes,
+                   fontsize=12, verticalalignment='top')
+
+    else:
+        sns.scatterplot(data=None, x=y_true, y=y_pred, s=10, alpha=0.5, color="purple")
+        lims = [min(min(y_true), min(y_pred)), max(max(y_true), max(y_pred))]
+        if metrics:
+          r2 = r2_score(y_true, y_pred)
+          rmse = np.sqrt(np.mean((y_true - y_pred) ** 2))
+          plt.text(0.05, 0.95, f'$R^2$: {r2:.4f}\nRMSE: {rmse:.4f}', transform=plt.gca().transAxes,
+                   fontsize=12, verticalalignment='top')
+
+    sns.lineplot(x=lims, y=lims, linestyle='--', lw=2, color='black')  # y=x line   
     plt.xlabel("True Energy")
     plt.ylabel("Predicted Energy")
     plt.title("Predicted vs True Energy")
     plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, "Plots/Errors/pred_vs_true.png"))
+    if cv == True:
+        plt.savefig(os.path.join(output_dir, "Plots/Errors/pred_vs_true_cv.png"))
+    else:
+        plt.savefig(os.path.join(output_dir, "Plots/Errors/pred_vs_true.png"))
     plt.close()
 
 
