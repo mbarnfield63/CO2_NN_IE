@@ -102,9 +102,8 @@ def combine_datasets(duo_data_dict, marvel_data_dict):
       
       # Merge the data
       combined = pd.merge(duo_data, marvel_data, on=['v', 'J'], how='outer')
-      combined = combined.rename(columns={'E_x': 'E_duo', 'E_y': 'E_marvel'})
-      combined = combined[['v', 'J', 'E_duo', 'E_marvel', 'Unc_E']]
-      combined = combined.rename(columns={'Unc_E': 'Unc_marvel'})
+      combined = combined.rename(columns={'E_x': 'E_Ca', 'E_y': 'E_Ma'})
+      combined = combined[['v', 'J', 'E_Ca', 'E_Ma']]
       combined['iso'] = number
       # Store in dictionary
       combined_dict[f'combined_{number}'] = combined
@@ -131,5 +130,5 @@ if __name__ == "__main__":
    minor_all, main = prepare_data(combined_data)
    minor_all = prepare_atomic_features(minor_all)
 
-   minor_all.to_csv("Data/CO_minor_isos_ma.txt", index=False, sep=' ')
+   minor_all.to_csv("Data/CO_minor_isos_ma.txt", index=False, sep=',')
    print("Minor CO isotopologues data saved to /Data/CO_minor_isos_ma.txt")

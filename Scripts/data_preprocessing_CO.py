@@ -25,23 +25,23 @@ def prepare_data(df_all):
 
     # Extract data for isotopologue 26 from all_combined
     main = df_all[df_all['iso'] == 26].copy()
-    main = main[['v', 'J', 'E_duo', 'E_marvel']]
+    main = main[['v', 'J', 'E_Ca', 'E_Ma']]
     # Remove 26 from all_combined
     minor_all = df_all[df_all['iso'] != 26].copy()
-    minor_all = minor_all[['iso', 'v', 'J', 'E_duo', 'E_marvel']]
+    minor_all = minor_all[['iso', 'v', 'J', 'E_Ca', 'E_Ma']]
 
     # Combine minor_all with main on v and J, adding E_duo_main and E_marvel_main columns
     main_renamed = main.rename(columns={
-        'E_duo': 'E_duo_main',
-        'E_marvel': 'E_marvel_main'
+        'E_Ca': 'E_Ca_main',
+        'E_Ma': 'E_Ma_main'
     })
     # Merge main_renamed with minor_all on v and J
     minor_renamed = minor_all.rename(columns={
-        'E_duo': 'E_duo_iso',
-        'E_marvel': 'E_marvel_iso'
+        'E_Ca': 'E_Ca_iso',
+        'E_Ma': 'E_Ma_iso'
     })
     minor_all = minor_renamed.merge(
-        main_renamed[['v', 'J', 'E_duo_main', 'E_marvel_main']],
+        main_renamed[['v', 'J', 'E_Ca_main', 'E_Ma_main']],
         on=['v', 'J'],
         how='left'
     )
@@ -51,10 +51,9 @@ def prepare_data(df_all):
     # Reset index
     minor_all.reset_index(drop=True, inplace=True)
 
-    # Residual of IE and MARVEL
-    minor_all['residual_IE'] = minor_all['E_marvel_iso'] - \
-        (minor_all['E_duo_iso'] +
-         minor_all['E_marvel_main'] - minor_all['E_duo_main'])
+    # Calculate E_IE and Error_IE
+    minor_all['E_IE'] = minor_all['E_Ca_iso'] + minor_all['E_Ma_main'] - minor_all['E_Ca_main']
+    minor_all['Error_IE'] = minor_all['E_Ma_iso'] - minor_all['E_IE']
 
     return minor_all, main
 
@@ -63,15 +62,15 @@ def prepare_atomic_features(minor_all):
     # Add mass_c and mass_o columns to minor_all
     minor_all['mass_c'] = minor_all['iso'].map(
         lambda x: isotopologue_masses[x][0])
-    minor_all['mass_o'] = minor_all['iso'].map(
+    minor_all['mass_o_1'] = minor_all['iso'].map(
         lambda x: isotopologue_masses[x][1])
 
-    minor_all['mu'] = (minor_all['mass_c'] * minor_all['mass_o']) / \
-        (minor_all['mass_c'] + minor_all['mass_o'])
+    minor_all['mu'] = (minor_all['mass_c'] * minor_all['mass_o_1']) / \
+        (minor_all['mass_c'] + minor_all['mass_o_1'])
     minor_all['mu_ratio'] = minor_all['mu'] / mu_main
 
     # One-hot encoding for masses
-    mass_cols = ['mass_c', 'mass_o']
+    mass_cols = ['mass_c', 'mass_o_1']
     for mass_col in mass_cols:
         # Create one-hot encoding for each mass
         one_hot = pd.get_dummies(minor_all[mass_col], prefix=mass_col)
