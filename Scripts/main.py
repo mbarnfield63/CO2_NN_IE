@@ -1,172 +1,223 @@
-import numpy as np
-import os
 import pandas as pd
-import random
-import time
+import numpy as np
 import torch
-from torch.utils.data import DataLoader
-from torch import optim
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
+import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 
-from model_utils import *
-from analysis import *
-from plotting import *
-
-# === Setup
-start_time = time.time()
-print("Time start:", time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(start_time)))
-print("Current device:", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU")
-
-# === Reproducibility ===
-SEED = 42
-np.random.seed(SEED)
-torch.manual_seed(SEED)
-random.seed(SEED)
-if torch.cuda.is_available():
-    torch.cuda.manual_seed(SEED)
-    torch.cuda.manual_seed_all(SEED)
-
-# Ensure deterministic behavior in PyTorch
-torch.backends.cudnn.deterministic = True
-torch.backends.cudnn.benchmark = False
-
-# === Config
-DATA_PATH = "Data/CO2_minor_isos_ma.txt"
-BATCH_SIZE = 512
-EPOCHS = 100
-LEARNING_RATE = 1e-3
+# ======================
+# Config
+# ======================
+DATA_FILE = "Data/CO_CO2_combined.csv"
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-OUTPUT_DIR = "Data/Outputs"
+BATCH_SIZE = 128
+EPOCHS = 50
+LR = 1e-3
+EMBED_DIM = 4
 
-# === Columns
 FEATURE_COLS = [
-    "E_IE", "E_Ca_iso", "E_Ca_main", "E_Ma_main", "gtot", "J",
+    "E_IE", "E_Ca_iso", "E_Ca_main", "E_Ma_main", "E_Ma_iso",
+    "gtot", "J", "v",
     "AFGL_m1", "AFGL_m2", "AFGL_l2", "AFGL_m3", "AFGL_r",
     "hzb_v1", "hzb_v2", "hzb_l2", "hzb_v3",
     "Trove_v1", "Trove_v2", "Trove_v3", "Trove_coeff",
-    "mu1", "mu2", "mu3", "mu_all", 
+    "mu", "mu_ratio",
+    "mu1", "mu2", "mu3", "mu_all",
     "mu1_ratio", "mu2_ratio", "mu3_ratio", "mu_all_ratio",
     "mass_c_12.0", "mass_c_13.003355",
     "mass_o_1_15.994915", "mass_o_1_16.999132", "mass_o_1_17.999161",
     "mass_o_2_15.994915", "mass_o_2_16.999132", "mass_o_2_17.999161",
     "e", "f", "Sym_Adp", "Sym_Ap", "Sym_A1", "Sym_A2",
 ]
-
-SCALED_COLS = ["E_IE", "E_Ca_iso", "E_Ca_main", "E_Ma_main", "gtot", "J"]
-
 TARGET_COL = "Error_IE"
+SCALED_COLS = ["E_IE", "E_Ca_iso", "E_Ca_main", "E_Ma_main"]
 
-MA_COL = "E_Ma_iso"
+# ======================
+# Dataset
+# ======================
+class MoleculeDataset(Dataset):
+    def __init__(self, df, feature_cols, target_col, scaler=None,
+                 fit=False, target_stats=None):
+        X = df[feature_cols].copy()
+        y = df[target_col].values.astype(np.float32)
+        mol_idx = df["molecule_idx"].values.astype(np.int64)
+        iso = df["iso"].values
 
-# === Data
-train_df, val_df, test_df, scaler, E_Ma_iso_test = load_data(
-    DATA_PATH,
-    FEATURE_COLS,
-    SCALED_COLS,
-    target_col=TARGET_COL,
-    output_dir=OUTPUT_DIR,
-)
+        # Fit or apply feature scaler
+        if fit:
+            self.scaler = StandardScaler()
+            X[SCALED_COLS] = self.scaler.fit_transform(X[SCALED_COLS])
+        else:
+            self.scaler = scaler
+            X[SCALED_COLS] = self.scaler.transform(X[SCALED_COLS])
 
-train_ds = CO2Dataset(train_df, FEATURE_COLS, TARGET_COL)
-val_ds = CO2Dataset(val_df, FEATURE_COLS, TARGET_COL)
-test_ds = CO2Dataset(test_df, FEATURE_COLS, TARGET_COL)
+        self.X = torch.tensor(X.values.astype(np.float32))
+        self.mol_idx = torch.tensor(mol_idx)
+        self.iso = iso
 
-train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True)
-val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE)
-test_loader = DataLoader(test_ds, batch_size=BATCH_SIZE)
+        # Target normalization per molecule (this was correct)
+        self.target_stats = target_stats
+        y_norm = np.zeros_like(y)
+        for mol in np.unique(mol_idx):
+            mask = mol_idx == mol
+            mu, sigma = self.target_stats[mol]
+            y_norm[mask] = (y[mask] - mu) / sigma
+        self.y = torch.tensor(y_norm)
 
-# === Model
-model = CO2EnergyRegressorSingle(len(FEATURE_COLS), dropout=0.3).to(DEVICE)
+    def __len__(self):
+        return len(self.y)
 
-# Initialize final bias to training target mean
-train_targets = train_df[TARGET_COL].values.astype(np.float32)
-mean_target = float(np.mean(train_targets))
-model.init_output_bias(mean_target)
+    def __getitem__(self, idx):
+        return self.X[idx], self.y[idx], self.mol_idx[idx], self.iso[idx]
 
-optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
-
-print(f"\nModel created with {len(FEATURE_COLS)} input features.")
-print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
-print(f"Initialized final bias to train target mean = {mean_target:.6f}")
-
-# === Train
-print("\n" + "=" * 60)
-print("MODEL TRAINING:")
-print("=" * 60)
-train_losses, val_losses = [], []
-
-for epoch in range(EPOCHS):
-    train_loss = train(model, train_loader, optimizer, DEVICE)
-    val_loss, val_rmse, val_mae = evaluate(model, val_loader, DEVICE)
-
-    train_losses.append(train_loss)
-    val_losses.append(val_loss)
-
-    if (epoch + 1) % 10 == 0 or epoch == 0 or epoch == EPOCHS:
-        print(
-            f"Epoch {epoch+1:2d}/{EPOCHS} | "
-            f"Train Loss: {train_loss:.6f} | "
-            f"Val Loss: {val_loss:.6f} | "
-            f"Val RMSE: {val_rmse:.6f} | "
-            f"Val MAE: {val_mae:.6f}"
+# ======================
+# Model
+# ======================
+class MoleculeRegressor(nn.Module):
+    def __init__(self, input_dim, n_molecules, embed_dim=4, dropout=0.3):
+        super().__init__()
+        self.embed = nn.Embedding(n_molecules, embed_dim)
+        self.trunk = nn.Sequential(
+            nn.Linear(input_dim + embed_dim, 512),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(512, 256),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(256, 128),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            # Single shared prediction head
+            nn.Linear(128, 1)
         )
 
+    def forward(self, x, mol_idx):
+        emb = self.embed(mol_idx)
+        z = torch.cat([x, emb], dim=1)
+        out = self.trunk(z).squeeze(-1)
+        return out
 
-print("\n" + "=" * 60)
-print("MODEL PERFORMANCE:")
-print("=" * 60)
+# ======================
+# Training / Evaluation
+# ======================
+def train_epoch(model, loader, optimizer, criterion):
+    model.train()
+    total_loss = 0
+    for X, y, mol_idx, _ in loader:
+        X, y, mol_idx = X.to(DEVICE), y.to(DEVICE), mol_idx.to(DEVICE)
+        optimizer.zero_grad()
+        
+        # Simple forward pass - no balanced loss
+        preds = model(X, mol_idx)
+        loss = criterion(preds, y)
+        
+        loss.backward()
+        optimizer.step()
+        total_loss += loss.item() * len(y)
+    return total_loss / len(loader.dataset)
 
-# === Test evaluation
-test_loss, test_rmse, test_mae = evaluate(model, test_loader, DEVICE)
-print(f"\nTest Loss: {test_loss:.4f}:\n  Test RMSE: {test_rmse:.4f}\n  Test MAE: {test_mae:.4f}")
+def evaluate(model, loader, target_stats):
+    model.eval()
+    preds_all, y_all, mols, isos = [], [], [], []
+    with torch.no_grad():
+        for X, y, mol_idx, iso in loader:
+            X, y, mol_idx = X.to(DEVICE), y.to(DEVICE), mol_idx.to(DEVICE)
+            preds = model(X, mol_idx)
 
-# Save model
-torch.save(model.state_dict(), "Models/co2_ie_model.pt")
-print("Model saved to Models/co2_ie_model.pt")
+            preds_np = preds.cpu().numpy()
+            y_np = y.cpu().numpy()
+            mol_idx_np = mol_idx.cpu().numpy()
 
-# === Predictions
-y_true, y_pred, abs_err, signed_err = get_predictions(model, test_loader, DEVICE)
+            # Denormalize per molecule
+            for m in np.unique(mol_idx_np):
+                mask = mol_idx_np == m
+                mu, sigma = target_stats[m]
+                preds_np[mask] = preds_np[mask] * sigma + mu
+                y_np[mask] = y_np[mask] * sigma + mu
 
-# Post-processing test_df
-post_processing(test_df, scaler, SCALED_COLS, y_pred, E_Ma_iso_test, OUTPUT_DIR)
+            preds_all.append(preds_np)
+            y_all.append(y_np)
+            mols.extend(mol_idx_np)
+            isos.extend(iso)
 
-# Isotopologue analysis
-print("\nAnalyzing isotopologue-specific errors...")
-iso_results = analyze_isotopologue_errors(test_df)
-iso_df = save_isotopologue_error_report(iso_results, OUTPUT_DIR)
-print(iso_df)
+    return (
+        np.concatenate(y_all),
+        np.concatenate(preds_all),
+        np.array(mols),
+        np.array(isos),
+    )
 
-# === Plots
-print("\nPlotting results...")
-plot_loss(train_losses, val_losses, OUTPUT_DIR)
-plot_predictions_vs_true(y_true, y_pred, OUTPUT_DIR)
+# ======================
+# Main
+# ======================
+def main():
+    df = pd.read_csv(DATA_FILE)
+    train_df, test_df = train_test_split(df, test_size=0.2, random_state=42)
+    train_df, val_df = train_test_split(train_df, test_size=0.2, random_state=42)
 
-# Isotopologue plot
-plot_mae_bars(iso_results, OUTPUT_DIR)
-plot_metrics_bars(iso_results, OUTPUT_DIR)
+    # Per-molecule target stats (this was correct)
+    target_stats = {}
+    for mol, sub in train_df.groupby("molecule_idx"):
+        mu = sub[TARGET_COL].mean()
+        sigma = sub[TARGET_COL].std() if sub[TARGET_COL].std() > 0 else 1.0
+        target_stats[mol] = (mu, sigma)
 
-# Feature importance
-print("\nCalculating feature importance...")
-feature_importance_df = get_feature_importance(model, test_loader, DEVICE, FEATURE_COLS, OUTPUT_DIR)
-feature_importance_df.to_csv(os.path.join(OUTPUT_DIR, "CSVs/feature_importance.csv"))
+    # Datasets
+    train_ds = MoleculeDataset(train_df, FEATURE_COLS, TARGET_COL, fit=True, target_stats=target_stats)
+    val_ds = MoleculeDataset(val_df, FEATURE_COLS, TARGET_COL, scaler=train_ds.scaler, target_stats=target_stats)
+    test_ds = MoleculeDataset(test_df, FEATURE_COLS, TARGET_COL, scaler=train_ds.scaler, target_stats=target_stats)
 
-# Print results summary
-print(f"\nOriginal MAE: {test_df['Original_abs_error'].mean():.6f}")
-print(f"Corrected MAE: {test_df['Corrected_abs_error'].mean():.6f}")
-overall_pct_improvement = 100 * (test_df['Original_abs_error'].mean() - test_df['Corrected_abs_error'].mean()) / test_df['Original_abs_error'].mean()
-print(f"Overall MAE Improvement: {overall_pct_improvement:.2f}%")
+    # Oversampling CO (assumes CO = molecule_idx == 1)
+    weights = np.ones(len(train_df))
+    co_idx = train_df["molecule_idx"].max()  # assumes CO is the higher index
+    weights[train_df["molecule_idx"].values == co_idx] = 5.0
+    sampler = WeightedRandomSampler(weights, num_samples=len(weights), replacement=True)
 
-improved_samples = (test_df['Error_reduction_pct'] > 0).sum()
-print(f"Samples with improvement: {improved_samples}/{len(test_df)} ({100*improved_samples/len(test_df):.2f}%)")
+    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, sampler=sampler)
+    val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False)
+    test_loader = DataLoader(test_ds, batch_size=BATCH_SIZE, shuffle=False)
 
-# Isotopologue energy distributions and residuals
-plot_iso_residuals_all(test_df, overall_pct_improvement, output_dir=OUTPUT_DIR)
-plot_iso_residuals_individual(test_df, output_dir=OUTPUT_DIR)
-plot_residuals_boxplot(test_df, output_dir=OUTPUT_DIR)
-plot_hist_error_energy(test_df, energy_col='E_Ma_iso', output_dir=OUTPUT_DIR)
+    model = MoleculeRegressor(len(FEATURE_COLS), df["molecule_idx"].nunique(), EMBED_DIM).to(DEVICE)
+    optimizer = optim.Adam(model.parameters(), lr=LR)
+    criterion = nn.MSELoss()
 
-# === Final summary
-end_time = time.time()
-elapsed_time = end_time - start_time
-print(f"\nTotal training time: {elapsed_time:.2f} seconds")
-print(f"  Time per epoch: {elapsed_time/EPOCHS:.2f} seconds")
-print("\nAll outputs saved to:", OUTPUT_DIR)
+    train_losses, val_losses = [], []
+    for epoch in range(EPOCHS):
+        tl = train_epoch(model, train_loader, optimizer, criterion)
+        y_val, p_val, mols_val, _ = evaluate(model, val_loader, target_stats)
+        vl = np.mean((y_val - p_val) ** 2)
+        train_losses.append(tl)
+        val_losses.append(vl)
+        if (epoch + 1) % 10 == 0 or epoch == 0:
+            print(f"Epoch {epoch+1}/{EPOCHS} | Train Loss: {tl:.6f} | Val Loss: {vl:.6f}")
+
+    # Plot curves
+    plt.figure()
+    plt.plot(train_losses, label="Train Loss")
+    plt.plot(val_losses, label="Val Loss")
+    plt.legend(); plt.xlabel("Epoch"); plt.ylabel("MSE"); plt.title("Training Curve")
+    plt.show()
+
+    # Test evaluation
+    y_test, p_test, mols, isos = evaluate(model, test_loader, target_stats)
+    df_out = pd.DataFrame({"y_true": y_test, "y_pred": p_test, "molecule": mols, "iso": isos})
+    inv_map = dict(enumerate(df["molecule"].astype("category").cat.categories))
+    df_out["molecule"] = df_out["molecule"].map(inv_map)
+
+    for mol in df_out["molecule"].unique():
+        sub = df_out[df_out["molecule"] == mol]
+        mae = np.mean(np.abs(sub["y_pred"] - sub["y_true"]))
+        print(f"{mol} Test MAE: {mae:.6f}")
+
+    print("\nPercentage improvements per isotopologue:")
+    for iso, sub in df_out.groupby("iso"):
+        baseline_mae = np.mean(np.abs(sub["y_true"]))  # naive baseline
+        model_mae = np.mean(np.abs(sub["y_pred"] - sub["y_true"]))
+        improvement = 100 * (baseline_mae - model_mae) / baseline_mae
+        print(f"{iso}: {improvement:+.2f}%")
+
+if __name__ == "__main__":
+    main()
