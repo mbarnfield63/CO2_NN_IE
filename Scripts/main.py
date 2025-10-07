@@ -75,29 +75,36 @@ class CorrectionDataset(Dataset):
 # Model
 # ======================
 class CorrectionRegressor(nn.Module):
-    def __init__(self, input_dim, n_molecules, n_isos, mol_dim=8, iso_dim=8, dropout=0.3):
+    def __init__(self, input_dim, n_molecules, n_isos, shared_dim=128, iso_head_dim=64):
         super().__init__()
-        self.mol_embed = nn.Embedding(n_molecules, mol_dim)
-        self.iso_embed = nn.Embedding(n_isos, iso_dim)
-
-        total_dim = input_dim + mol_dim + iso_dim
+        self.mol_embed = nn.Embedding(n_molecules, 8)
+        self.iso_embed = nn.Embedding(n_isos, 8)
+        total_dim = input_dim + 16
         self.trunk = nn.Sequential(
             nn.Linear(total_dim, 256),
             nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(256, 128),
+            nn.Dropout(0.3),
+            nn.Linear(256, shared_dim),
             nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(128, 64),
-            nn.GELU(),
-            nn.Linear(64, 1),
         )
+        # Each isotope gets a small head
+        self.heads = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(shared_dim, iso_head_dim),
+                nn.GELU(),
+                nn.Linear(iso_head_dim, 1)
+            ) for _ in range(n_isos)
+        ])
 
     def forward(self, x, mol_idx, iso_idx):
-        mol_emb = self.mol_embed(mol_idx)
-        iso_emb = self.iso_embed(iso_idx)
-        z = torch.cat([x, mol_emb, iso_emb], dim=1)
-        return self.trunk(z).squeeze(-1)
+        z = torch.cat([x, self.mol_embed(mol_idx), self.iso_embed(iso_idx)], dim=1)
+        trunk = self.trunk(z)
+        out = torch.zeros(x.size(0), 1, device=x.device)
+        for i in range(len(self.heads)):
+            mask = iso_idx == i
+            if mask.any():
+                out[mask] = self.heads[i](trunk[mask])
+        return out.squeeze(-1)
 
     def init_output_bias(self, bias_value):
         for module in reversed(list(self.trunk)):
