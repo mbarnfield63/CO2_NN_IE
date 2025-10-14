@@ -24,7 +24,7 @@ ISO_WEIGHTS = {
     27: 3.5,
     28: 0.75,
     36: 2.0,
-    37: 4.0,
+    37: 5.5,
     38: 4.0,
 }
 
@@ -70,6 +70,15 @@ class CorrectionDataset(Dataset):
 
     def __getitem__(self, idx):
         return self.X[idx], self.y[idx], self.mol_idx[idx], self.iso_idx[idx], self.iso[idx]
+
+def PCA_dim_reduction(df, feature_cols, scaled_cols):
+    pca = PCA(n_components=0.95, svd_solver='full')
+    features = df[feature_cols]
+    features_scaled = features.copy()
+    features_scaled[scaled_cols] = StandardScaler().fit_transform(features[scaled_cols])
+    pca.fit(features_scaled)
+    print(f"PCA reduced feature count from {len(feature_cols)} to {pca.n_components_}")
+    return pca, pca.transform(features_scaled)
 
 # ======================
 # Model (Hybrid Shared + Partial Heads)
