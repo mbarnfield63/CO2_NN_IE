@@ -15,17 +15,17 @@ DATA_FILE = "Data/CO_CO2_combined.csv"
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 BATCH_SIZE = 512
 EPOCHS = 100
-LR = 1e-3
+LR = 5e-4
 VAL_FRAC = 0.2
 N_SPLITS = 5  # KFold splits
 USE_SCHEDULER = True  # <-- Toggle LR scheduler on/off easily
 
 ISO_WEIGHTS = {
-    27: 3.5,
-    28: 0.75,
+    27: 7.0,
+    28: 1.0,
     36: 2.0,
-    37: 5.5,
-    38: 4.0,
+    37: 7.0,
+    38: 1.0,
 }
 
 FEATURE_COLS = [
@@ -43,7 +43,6 @@ FEATURE_COLS = [
     "e", "f", "Sym_Adp", "Sym_Ap", "Sym_A1", "Sym_A2",
 ]
 
-SCALED_COLS = ["E_IE", "E_Ca_iso", "E_Ca_main", "E_Ma_main", "gtot", "J"]
 TARGET_COL = "Error_IE"
 
 # ======================
@@ -54,10 +53,10 @@ class CorrectionDataset(Dataset):
         X = df[feature_cols].copy()
         if fit:
             self.scaler = StandardScaler()
-            X[SCALED_COLS] = self.scaler.fit_transform(X[SCALED_COLS])
+            X[:] = self.scaler.fit_transform(X)
         else:
             self.scaler = scaler
-            X[SCALED_COLS] = self.scaler.transform(X[SCALED_COLS])
+            X[:] = self.scaler.transform(X)
 
         self.X = torch.tensor(X.values.astype(np.float32))
         self.y = torch.tensor(df[target_col].values.astype(np.float32))
@@ -71,20 +70,11 @@ class CorrectionDataset(Dataset):
     def __getitem__(self, idx):
         return self.X[idx], self.y[idx], self.mol_idx[idx], self.iso_idx[idx], self.iso[idx]
 
-def PCA_dim_reduction(df, feature_cols, scaled_cols):
-    pca = PCA(n_components=0.95, svd_solver='full')
-    features = df[feature_cols]
-    features_scaled = features.copy()
-    features_scaled[scaled_cols] = StandardScaler().fit_transform(features[scaled_cols])
-    pca.fit(features_scaled)
-    print(f"PCA reduced feature count from {len(feature_cols)} to {pca.n_components_}")
-    return pca, pca.transform(features_scaled)
-
 # ======================
 # Model (Hybrid Shared + Partial Heads)
 # ======================
 class CorrectionRegressor(nn.Module):
-    def __init__(self, input_dim, n_molecules, n_isos, shared_dim=128, iso_head_dim=32):
+    def __init__(self, input_dim, n_molecules, n_isos, shared_dim=128, iso_head_dim=64):
         super().__init__()
         self.mol_embed = nn.Embedding(n_molecules, 8)
         self.iso_embed = nn.Embedding(n_isos, 8)
@@ -92,9 +82,11 @@ class CorrectionRegressor(nn.Module):
         total_dim = input_dim + 8 + 8
         self.trunk = nn.Sequential(
             nn.Linear(total_dim, 256),
+            nn.LayerNorm(256),
             nn.GELU(),
-            nn.Dropout(0.3),
+            nn.Dropout(0.15),
             nn.Linear(256, shared_dim),
+            nn.LayerNorm(shared_dim),
             nn.GELU(),
         )
 
@@ -257,8 +249,11 @@ def main():
 
         df = pd.read_csv(DATA_FILE)
         df = df[df["Error_IE"].abs() <= 1]
-        df = df[df["iso"] != 636]
         df["iso_idx"] = df["iso"].astype("category").cat.codes
+        
+        # If not iso or molecule columns, convert to float
+        for col in FEATURE_COLS:
+            df[col] = df[col].astype(float)
 
         kf = KFold(n_splits=N_SPLITS, shuffle=True, random_state=seed)
         fold_results = []
@@ -294,7 +289,7 @@ def main():
             model = CorrectionRegressor(len(FEATURE_COLS), n_molecules, n_isos).to(DEVICE)
             model.init_output_bias(train_df[TARGET_COL].mean())
 
-            optimizer = optim.Adam(model.parameters(), lr=LR, weight_decay=1e-5)
+            optimizer = optim.Adam(model.parameters(), lr=LR, weight_decay=1e-6)
             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, EPOCHS) if USE_SCHEDULER else None
             iso_tracker = IsoWeightTracker(ISO_WEIGHTS)
 
