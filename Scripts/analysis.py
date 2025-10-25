@@ -18,9 +18,9 @@ def analyze_isotopologue_errors(test_df):
         if iso == "unknown":
             continue
         mask = test_df['iso'] == iso
-        original_mae = mean_absolute_error(test_df['E_Ma_iso'][mask], test_df['E_IE_original'][mask])
+        original_mae = mean_absolute_error(test_df['E_Ma_iso'][mask], test_df['E_IE'][mask])
         corrected_mae = mean_absolute_error(test_df['E_Ma_iso'][mask], test_df['E_IE_corrected'][mask])
-        original_rmse = root_mean_squared_error(test_df['E_Ma_iso'][mask], test_df['E_IE_original'][mask])
+        original_rmse = root_mean_squared_error(test_df['E_Ma_iso'][mask], test_df['E_IE'][mask])
         corrected_rmse = root_mean_squared_error(test_df['E_Ma_iso'][mask], test_df['E_IE_corrected'][mask])
         bias = np.mean(test_df['Original_error'][mask] - test_df['Corrected_error'][mask])
         results[iso] = {
