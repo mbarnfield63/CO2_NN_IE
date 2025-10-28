@@ -28,23 +28,23 @@ def plot_predictions_vs_true(y_true, y_pred, output_dir, metrics=True, cv=False,
         sns.scatterplot(data=all_preds_df, x="y_true", y="y_pred", hue="fold", palette="tab10", s=10, alpha=0.5)
         lims = [min(all_preds_df["y_true"].min(), all_preds_df["y_pred"].min()), max(all_preds_df["y_true"].max(), all_preds_df["y_pred"].max())]
         plt.legend(title="Fold No.",
-                   title_fontsize=12,
-                   fontsize=10,
-                   loc='lower right')
+                    title_fontsize=12,
+                    fontsize=10,
+                    loc='lower right')
         if metrics:
-          r2 = r2_score(all_preds_df["y_true"], all_preds_df["y_pred"])
-          rmse = np.sqrt(np.mean((all_preds_df["y_true"] - all_preds_df["y_pred"]) ** 2))
-          plt.text(0.05, 0.95, f'$R^2$: {r2:.4f}\nRMSE: {rmse:.4f}', transform=plt.gca().transAxes,
-                   fontsize=12, verticalalignment='top')
+            r2 = r2_score(all_preds_df["y_true"], all_preds_df["y_pred"])
+            rmse = np.sqrt(np.mean((all_preds_df["y_true"] - all_preds_df["y_pred"]) ** 2))
+            plt.text(0.05, 0.95, f'$R^2$: {r2:.4f}\nRMSE: {rmse:.4f}', transform=plt.gca().transAxes,
+                        fontsize=12, verticalalignment='top')
 
     else:
         sns.scatterplot(data=None, x=y_true, y=y_pred, s=10, alpha=0.5, color="purple")
         lims = [min(min(y_true), min(y_pred)), max(max(y_true), max(y_pred))]
         if metrics:
-          r2 = r2_score(y_true, y_pred)
-          rmse = np.sqrt(np.mean((y_true - y_pred) ** 2))
-          plt.text(0.05, 0.95, f'$R^2$: {r2:.4f}\nRMSE: {rmse:.4f}', transform=plt.gca().transAxes,
-                   fontsize=12, verticalalignment='top')
+            r2 = r2_score(y_true, y_pred)
+            rmse = np.sqrt(np.mean((y_true - y_pred) ** 2))
+            plt.text(0.05, 0.95, f'$R^2$: {r2:.4f}\nRMSE: {rmse:.4f}', transform=plt.gca().transAxes,
+                    fontsize=12, verticalalignment='top')
 
     sns.lineplot(x=lims, y=lims, linestyle='--', lw=2, color='black')  # y=x line   
     plt.xlabel("True Energy")
@@ -64,24 +64,24 @@ def plot_iso_residuals_all(test_df, overall_pct_improvement, energy_col='E_Ma_is
     """
     # Get unique isotopologues
     all_isos = sorted(test_df['iso'].unique())
-   
+
     # Calculate grid dimensions
     n_isos = len(all_isos)
     n_rows = (n_isos + n_col - 1) // n_col
-   
+
     # Get overall energy range for consistent x-axis limits
     energy_min = test_df[energy_col].min()
     energy_max = test_df[energy_col].max()
-   
+
     # Create figure and subplots
     fig, axes = plt.subplots(n_rows, n_col, sharex=True, sharey=True, figsize=(5*n_col, 4*n_rows))
     if n_rows == 1:
         axes = axes.reshape(1, -1)
     elif n_col == 1:
         axes = axes.reshape(-1, 1)
-   
-    colors = ['blue', 'orange']
- 
+
+    colors = ['#21918c', '#440154']
+
     for idx, iso in enumerate(all_isos):
         row = idx // n_col
         col = idx % n_col
@@ -93,23 +93,25 @@ def plot_iso_residuals_all(test_df, overall_pct_improvement, energy_col='E_Ma_is
         ax.scatter(
             test_df.loc[iso_mask, energy_col],
             test_df["Original_error"][iso_mask],  # E_IE - E_Ma_iso
-            s=10, alpha=0.5, color=colors[0], label='Original Error'
-        )
+            s=10, alpha=0.75, color=colors[0], marker='x',
+            label='Original IE Method',
+            )
         ax.scatter(
             test_df.loc[iso_mask, energy_col],
             test_df["Corrected_error"][iso_mask],  # E_IE_corrected - E_Ma_iso
-            s=10, alpha=0.5, color=colors[1], label='NN Corrected'
+            s=10, alpha=0.75, color=colors[1], marker='o',
+            label='IE + ML Correction',
         )
-        ax.axhline(0, color='black', linestyle='--')
+        ax.axhline(0, color='black', linestyle='--', linewidth=1.2, alpha=0.9)
         
         # Calculate mean average error reduction percentage for this isotopologue
         mean_reduction = 100 * (test_df["Original_abs_error"][iso_mask].mean() - \
                                 test_df["Corrected_abs_error"][iso_mask].mean()) / \
                                 test_df["Original_abs_error"][iso_mask].mean()
-              
+
         ax.text(0.05, 0.05, f'Iso: {iso}\nReduction: {mean_reduction:.2f}%',
                 transform=ax.transAxes, fontsize=16, va='bottom')
-       
+
         # Set consistent axis limits
         ax.set_xlim(energy_min, energy_max)
         if row == n_rows - 1:
@@ -118,7 +120,7 @@ def plot_iso_residuals_all(test_df, overall_pct_improvement, energy_col='E_Ma_is
         if col == 0:
             ax.set_ylabel('Residual (Obs - Calc)')
         ax.grid(True, alpha=0.3)
-   
+
     # Add legend to the last row, last column axis
     penultimate_ax = axes[-1, -2]
     axes[-1, -1].axis('off')
@@ -136,23 +138,23 @@ def plot_iso_residuals_all(test_df, overall_pct_improvement, energy_col='E_Ma_is
         title_fontsize=25
     )
 
-    mae_reduction_text = f"Overall Error Improvement\n{overall_pct_improvement:.2f}%"
+    mae_reduction_text = f"Overall Residuals Reduction\n{overall_pct_improvement:.2f}%"
     penultimate_ax.text(0.5, 0.5, mae_reduction_text, transform=penultimate_ax.transAxes,
                         fontsize=20, va='top', ha='center')
-   
+    
     plt.tight_layout()
-   
+
     if output_dir:
         os.makedirs(os.path.join(output_dir, "Plots/Isotopologues"), exist_ok=True)
         plt.savefig(os.path.join(output_dir, "Plots/Isotopologues/isotopologue_residuals.png"),
-                   dpi=300, bbox_inches='tight')
+                    dpi=300, bbox_inches='tight')
     plt.close()
 
 
 def plot_iso_residuals_individual(test_df, energy_col='E_Ma_iso', output_dir=None):
     # Get unique isotopologues
     all_isos = sorted(test_df['iso'].unique())
-    colors = ['blue', 'orange']
+    colors = ['#21918c', '#440154']
     max_error = np.ceil(max(test_df["Original_abs_error"].abs().max(), test_df["Corrected_abs_error"].abs().max()) * 100) / 100
 
     for iso in all_isos:
@@ -164,12 +166,12 @@ def plot_iso_residuals_individual(test_df, energy_col='E_Ma_iso', output_dir=Non
         plt.scatter(
             test_df.loc[iso_mask, energy_col],
             test_df["Original_error"][iso_mask],  # E_IE - E_Ma_iso
-            s=5, alpha=0.5, color=colors[0], label='Original Error'
+            s=5, alpha=0.5, color=colors[0], label='Original IE'
         )
         plt.scatter(
             test_df.loc[iso_mask, energy_col],
             test_df["Corrected_error"][iso_mask],  # E_IE_corrected - E_Ma_iso
-            s=5, alpha=0.5, color=colors[1], label='NN Corrected'
+            s=5, alpha=0.5, color=colors[1], label='IE + ML Correction'
         )
 
         plt.axhline(0, color='black', linestyle='--')
@@ -178,7 +180,7 @@ def plot_iso_residuals_individual(test_df, energy_col='E_Ma_iso', output_dir=Non
         mean_reduction = 100 * (test_df["Original_abs_error"][iso_mask].mean() - test_df["Corrected_abs_error"][iso_mask].mean()) / test_df["Original_abs_error"][iso_mask].mean()
         
         plt.text(0.05, 0.95, f'Iso: {iso}\nReduction: {mean_reduction:.2f}%',
-                 transform=plt.gca().transAxes, fontsize=12, va='top')
+                    transform=plt.gca().transAxes, fontsize=12, va='top')
         
         plt.xlabel('Energy (cm^-1)')
         plt.ylabel('Residual (Obs - Calc)')
@@ -193,7 +195,6 @@ def plot_iso_residuals_individual(test_df, energy_col='E_Ma_iso', output_dir=Non
             plt.savefig(os.path.join(output_dir, f"Plots/Isotopologues/Individual/{iso}_residuals.png"),
                         dpi=300, bbox_inches='tight')
         plt.close()
-
 
 
 def plot_feature_importance(df, output_dir):
@@ -281,21 +282,21 @@ def plot_residuals_boxplot(test_df, output_dir=None):
 
     # Original residuals boxplot
     box1 = axes[0].boxplot(data_original, patch_artist=True,
-                           boxprops=dict(facecolor='lightblue', color='blue'),
-                           medianprops=dict(color='red'))
+                            boxprops=dict(facecolor='lightblue', color='blue'),
+                            medianprops=dict(color='red'))
     axes[0].axhline(0, color='black', linestyle='--')
     axes[0].set_ylabel('Residual (Obs - Calc)')
     axes[0].text(0.02, 0.02, 'Original IE Method Residuals', transform=axes[0].transAxes,
-                 fontsize=22, fontweight='bold', va='bottom', ha='left')
+                    fontsize=22, fontweight='bold', va='bottom', ha='left')
 
     # Corrected residuals boxplot
     box2 = axes[1].boxplot(data_corrected, patch_artist=True,
-                           boxprops=dict(facecolor='lightgreen', color='green'),
-                           medianprops=dict(color='red'))
+                            boxprops=dict(facecolor='lightgreen', color='green'),
+                            medianprops=dict(color='red'))
     axes[1].axhline(0, color='black', linestyle='--')
     axes[1].set_ylabel('Residual (Obs - Calc)')
     axes[1].text(0.02, 0.02, 'Residuals after ML Correction', transform=axes[1].transAxes,
-                 fontsize=22, fontweight='bold', va='bottom', ha='left')
+                    fontsize=22, fontweight='bold', va='bottom', ha='left')
 
     axes[1].set_xticks(range(1, len(all_isos)+1))
     axes[1].set_xticklabels(all_isos, rotation=45, ha='right', fontsize=16)
