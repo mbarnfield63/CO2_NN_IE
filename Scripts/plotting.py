@@ -1,8 +1,8 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import os
-import seaborn as sns
 import pandas as pd
+import seaborn as sns
 from sklearn.metrics import r2_score
 
 def plot_loss(train_losses, val_losses, output_dir):
@@ -20,41 +20,44 @@ def plot_loss(train_losses, val_losses, output_dir):
     plt.close()
 
 
-def plot_predictions_vs_true(y_true, y_pred, output_dir, metrics=True, cv=False, all_preds_df=None):
+def plot_predictions_vs_true(y_true, y_pred, output_dir, metrics=True):
     os.makedirs(os.path.join(output_dir, "Plots/Errors"), exist_ok=True)
 
-    plt.figure(figsize=(6, 6))
-    if cv == True:
-        sns.scatterplot(data=all_preds_df, x="y_true", y="y_pred", hue="fold", palette="tab10", s=10, alpha=0.5)
-        lims = [min(all_preds_df["y_true"].min(), all_preds_df["y_pred"].min()), max(all_preds_df["y_true"].max(), all_preds_df["y_pred"].max())]
-        plt.legend(title="Fold No.",
-                    title_fontsize=12,
-                    fontsize=10,
-                    loc='lower right')
-        if metrics:
-            r2 = r2_score(all_preds_df["y_true"], all_preds_df["y_pred"])
-            rmse = np.sqrt(np.mean((all_preds_df["y_true"] - all_preds_df["y_pred"]) ** 2))
-            plt.text(0.05, 0.95, f'$R^2$: {r2:.4f}\nRMSE: {rmse:.4f}', transform=plt.gca().transAxes,
-                        fontsize=12, verticalalignment='top')
-
-    else:
-        sns.scatterplot(data=None, x=y_true, y=y_pred, s=10, alpha=0.5, color="purple")
-        lims = [min(min(y_true), min(y_pred)), max(max(y_true), max(y_pred))]
-        if metrics:
-            r2 = r2_score(y_true, y_pred)
-            rmse = np.sqrt(np.mean((y_true - y_pred) ** 2))
-            plt.text(0.05, 0.95, f'$R^2$: {r2:.4f}\nRMSE: {rmse:.4f}', transform=plt.gca().transAxes,
-                    fontsize=12, verticalalignment='top')
-
-    sns.lineplot(x=lims, y=lims, linestyle='--', lw=2, color='black')  # y=x line   
-    plt.xlabel("True Energy")
-    plt.ylabel("Predicted Energy")
-    plt.title("Predicted vs True Energy")
+    plt.figure(figsize=(5, 5))
+    sns.scatterplot(x=y_true, y=y_pred, s=10, alpha=0.5, color="#440154")
+    if metrics:
+        r2 = r2_score(y_true, y_pred)
+        rmse = np.sqrt(np.mean((y_true - y_pred) ** 2))
+        plt.text(0.05, 0.95, f'$R^2$: {r2:.4f}\nRMSE: {rmse:.4f}', transform=plt.gca().transAxes,
+                    verticalalignment='top')
+    sns.lineplot(x=[-0.125, 0.125], y=[-0.125, 0.125], linestyle='--', lw=2, color='black')
+    plt.xlabel("True Residual (Original IE)")
+    plt.xlim(-0.125, 0.125)
+    plt.ylabel("Predicted Residual (ML Correction)")
+    plt.ylim(-0.125, 0.125)
     plt.tight_layout()
-    if cv == True:
-        plt.savefig(os.path.join(output_dir, "Plots/Errors/pred_vs_true_cv.png"))
-    else:
-        plt.savefig(os.path.join(output_dir, "Plots/Errors/pred_vs_true.png"))
+    plt.savefig(os.path.join(output_dir, "Plots/Errors/pred_vs_true.png"), dpi=300, bbox_inches='tight')
+    plt.close()
+
+
+def plot_predictions_vs_true_cv(all_preds_df, output_dir, metrics=True):
+    os.makedirs(os.path.join(output_dir, "Plots/Errors"), exist_ok=True)
+
+    plt.figure(figsize=(5, 5))
+    sns.scatterplot(data=all_preds_df, x="y_true", y="y_pred", hue="fold", palette="tab10", s=10, alpha=0.5)
+    lims = [min(all_preds_df["y_true"].min(), all_preds_df["y_pred"].min()),
+            max(all_preds_df["y_true"].max(), all_preds_df["y_pred"].max())]
+    plt.legend(title="Fold No.", loc='lower right')
+    if metrics:
+        r2 = r2_score(all_preds_df["y_true"], all_preds_df["y_pred"])
+        rmse = np.sqrt(np.mean((all_preds_df["y_true"] - all_preds_df["y_pred"]) ** 2))
+        plt.text(0.05, 0.95, f'$R^2$: {r2:.4f}\nRMSE: {rmse:.4f}', transform=plt.gca().transAxes,
+                    verticalalignment='top')
+    sns.lineplot(x=lims, y=lims, linestyle='--', lw=2, color='black')
+    plt.xlabel("True Residual (Original IE)")
+    plt.ylabel("Predicted Residual (ML Correction)")
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, "Plots/Errors/pred_vs_true_cv.png"), dpi=300, bbox_inches='tight')
     plt.close()
 
 
@@ -70,8 +73,8 @@ def plot_iso_residuals_all(test_df, overall_pct_improvement, energy_col='E_Ma_is
     n_rows = (n_isos + n_col - 1) // n_col
 
     # Get overall energy range for consistent x-axis limits
-    energy_min = test_df[energy_col].min()
-    energy_max = test_df[energy_col].max()
+    energy_min = 0
+    energy_max = 14000
 
     # Create figure and subplots
     fig, axes = plt.subplots(n_rows, n_col, sharex=False, sharey=True, figsize=(5*n_col, 4*n_rows))
@@ -93,13 +96,13 @@ def plot_iso_residuals_all(test_df, overall_pct_improvement, energy_col='E_Ma_is
         ax.scatter(
             test_df.loc[iso_mask, energy_col],
             test_df["Original_error"][iso_mask],  # E_IE - E_Ma_iso
-            s=10, alpha=0.75, color=colors[0], marker='x',
+            s=10, alpha=0.7, color=colors[0], marker='^',
             label='Original IE Method',
             )
         ax.scatter(
             test_df.loc[iso_mask, energy_col],
             test_df["Corrected_error"][iso_mask],  # E_IE_corrected - E_Ma_iso
-            s=10, alpha=0.75, color=colors[1], marker='o',
+            s=10, alpha=0.7, color=colors[1], marker='o',
             label='IE + ML Correction',
         )
         ax.axhline(0, color='black', linestyle='--', linewidth=1.2, alpha=0.9)
@@ -115,34 +118,33 @@ def plot_iso_residuals_all(test_df, overall_pct_improvement, energy_col='E_Ma_is
         # Set consistent axis limits
         ax.set_xlim(energy_min, energy_max)
         if row == n_rows - 1:
-            ax.set_xlabel('Energy (cm^-1)')
+            ax.set_xlabel(r'MARVEL Energy cm$\mathregular{^{-1}}$')
         ax.set_ylim(-0.15, 0.15)
         if col == 0:
-            ax.set_ylabel('Residual (Obs - Calc)')
+            ax.set_ylabel(r'Residual ($\it{Obs-Calc}$)')
         ax.grid(True, alpha=0.3)
 
     # Add legend to the last row, last column axis
-    penultimate_ax = axes[-1, -1]
-    axes[-1, -1].axis('off')
+    penultimate_ax = axes[-1, -2]
+    final_ax = axes[-1, -1]
     axes[-1, -1].axis('off')
     handles, labels = axes[0, 0].get_legend_handles_labels()
     penultimate_ax.legend(
         handles,
         labels,
-        loc='upper center',
+        loc='center',
         fontsize=20,
         handlelength=2,
-        handletextpad=1,
-        markerscale=2,
-        title='Residuals',
-        title_fontsize=25
+        handletextpad=0.75,
+        markerscale=5,
     )
 
     mae_reduction_text = f"Overall Residuals Reduction\n{overall_pct_improvement:.2f}%"
-    penultimate_ax.text(0.5, 0.5, mae_reduction_text, transform=penultimate_ax.transAxes,
+    final_ax.text(0.5, 0.575, mae_reduction_text, transform=final_ax.transAxes,
                         fontsize=20, va='top', ha='center')
     
     plt.tight_layout()
+    plt.subplots_adjust(hspace=0.0, wspace=0.0)
 
     if output_dir:
         os.makedirs(os.path.join(output_dir, "Plots/Isotopologues"), exist_ok=True)
@@ -152,44 +154,44 @@ def plot_iso_residuals_all(test_df, overall_pct_improvement, energy_col='E_Ma_is
 
 
 def plot_iso_residuals_individual(test_df, energy_col='E_Ma_iso', output_dir=None):
-    # Get unique isotopologues
+    """
+    Plot energy distributions based on the original energy values for each isotopologue, individually.
+    """
     all_isos = sorted(test_df['iso'].unique())
     colors = ['#21918c', '#440154']
     max_error = np.ceil(max(test_df["Original_abs_error"].abs().max(), test_df["Corrected_abs_error"].abs().max()) * 100) / 100
 
     for iso in all_isos:
         plt.figure(figsize=(6, 5))
-        
-        # Get mask for current isotopologue
         iso_mask = test_df['iso'] == iso
-        
         plt.scatter(
             test_df.loc[iso_mask, energy_col],
-            test_df["Original_error"][iso_mask],  # E_IE - E_Ma_iso
-            s=5, alpha=0.5, color=colors[0], label='Original IE'
+            test_df["Original_error"][iso_mask],
+            s=10, alpha=0.7, color=colors[0], marker='^',
+            label='Original IE Method'
         )
         plt.scatter(
             test_df.loc[iso_mask, energy_col],
-            test_df["Corrected_error"][iso_mask],  # E_IE_corrected - E_Ma_iso
-            s=5, alpha=0.5, color=colors[1], label='IE + ML Correction'
+            test_df["Corrected_error"][iso_mask],
+            s=10, alpha=0.7, color=colors[1], marker='o',
+            label='IE + ML Correction'
         )
+        plt.axhline(0, color='black', linestyle='--', linewidth=1.2, alpha=0.9)
 
-        plt.axhline(0, color='black', linestyle='--')
-        
-        # Calculate mean error reduction percentage for this isotopologue
-        mean_reduction = 100 * (test_df["Original_abs_error"][iso_mask].mean() - test_df["Corrected_abs_error"][iso_mask].mean()) / test_df["Original_abs_error"][iso_mask].mean()
-        
-        plt.text(0.05, 0.95, f'Iso: {iso}\nReduction: {mean_reduction:.2f}%',
-                    transform=plt.gca().transAxes, fontsize=12, va='top')
-        
-        plt.xlabel('Energy (cm^-1)')
-        plt.ylabel('Residual (Obs - Calc)')
+        mean_reduction = 100 * (test_df["Original_abs_error"][iso_mask].mean() - 
+                                test_df["Corrected_abs_error"][iso_mask].mean()) / \
+                                test_df["Original_abs_error"][iso_mask].mean()
+
+        plt.text(0.05, 0.05, f'Iso: {iso}\nReduction: {mean_reduction:.2f}%',
+                    transform=plt.gca().transAxes, fontsize=16, va='bottom')
+
+        plt.xlabel(r'MARVEL Energy cm$\mathregular{^{-1}}$')
+        plt.ylabel(r'Residual ($\it{Obs-Calc}$)')
         plt.ylim(-max_error, max_error)
-        plt.title(f'Isotopologue {iso} Residuals')
         plt.grid(True, alpha=0.3)
         plt.legend()
         plt.tight_layout()
-        
+
         if output_dir:
             os.makedirs(os.path.join(output_dir, "Plots/Isotopologues/Individual"), exist_ok=True)
             plt.savefig(os.path.join(output_dir, f"Plots/Isotopologues/Individual/{iso}_residuals.png"),
@@ -215,7 +217,7 @@ def plot_feature_importance(df, output_dir):
 
 def plot_mae_bars(results, output_dir, figsize=(8, 6)):
     isotopologues = sorted(results.keys())
-    maes = ['Original MAE', 'Corrected MAE']
+    maes = ['Original IE MAE', 'ML Corrected MAE']
     x = np.arange(len(isotopologues))
     width = 0.35
 
@@ -239,25 +241,48 @@ def plot_mae_bars(results, output_dir, figsize=(8, 6)):
     plt.close()
 
 
-def plot_metrics_bars(results, output_dir, figsize=(8, 6)):
+def plot_metrics_bars(results, output_dir, figsize=(12, 5)):
     isotopologues = sorted(results.keys())
-    metrics = ['Original MAE', 'Corrected MAE', 'Original RMSE', 'Corrected RMSE']
+    maes = ['Original IE MAE', 'ML Corrected MAE']
+    rmses = ['Original IE RMSE', 'ML Corrected RMSE']
     x = np.arange(len(isotopologues))
-    width = 0.2
+    width = 0.35
 
-    plt.figure(figsize=figsize)
+    fig, axes = plt.subplots(1, 2, figsize=figsize, sharey=False)
 
-    colors = plt.cm.Set2(np.linspace(0, 1, len(metrics)))
-    for i, metric in enumerate(metrics):
+    # MAE subplot
+    for i, metric in enumerate(maes):
         values = [results[iso][metric] for iso in isotopologues]
-        plt.bar(x + i * width, values, width, label=metric, color=colors[i], alpha=0.8)
+        axes[0].bar(x + i * width, values, width, label=metric,
+                    color="#21918c" if i == 0 else "#440154",
+                    hatch="\\" if i == 0 else None)
+    
+    axes[0].set_xlabel("Isotopologue Number (OCO notation)")
+    axes[0].set_xticks(x + width * (len(maes)-1) / 2)
+    axes[0].set_xticklabels(isotopologues, rotation=45, ha='center')
+    axes[0].set_ylabel("MAE")
+    axes[0].set_ylim(0, 0.03)
+    axes[0].legend(loc='upper left')
+    axes[0].grid(axis="y")
+    axes[0].tick_params(axis='x', which='both', bottom=False, top=False)
+    axes[0].tick_params(axis='y')
 
-    plt.xticks(x + width * (len(metrics)-1) / 2, isotopologues)
-    plt.ylabel("Error")
-    plt.xlabel("Isotopologue (OCO notation)")
-    plt.title("Isotopologue Error Comparison", fontsize=14, fontweight="bold")
-    plt.legend()
-    plt.grid(axis="y", alpha=0.3)
+    # RMSE subplot
+    for i, metric in enumerate(rmses):
+        values = [results[iso][metric] for iso in isotopologues]
+        axes[1].bar(x + i * width, values, width, label=metric,
+                    color="#21918c" if i == 0 else "#440154",
+                    hatch="\\" if i == 0 else None)
+    
+    axes[1].set_xlabel("Isotopologue Number (OCO notation)")
+    axes[1].set_xticks(x + width * (len(rmses)-1) / 2)
+    axes[1].set_xticklabels(isotopologues, rotation=45, ha='center')
+    axes[1].set_ylabel("RMSE")
+    axes[1].set_ylim(0, 0.04)
+    axes[1].legend(loc='upper left')
+    axes[1].grid(axis="y")
+    axes[1].tick_params(axis='x', which='both', bottom=False, top=False)
+    axes[1].tick_params(axis='y')
 
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, "Plots/Errors/mae_rmse_bars.png"),
@@ -318,21 +343,48 @@ def plot_hist_error_energy(test_df, energy_col='E_Ma_iso', output_dir=None):
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 6), sharey=True)
 
+    # Calculate metrics
+    orig_mae = np.mean(np.abs(test_df["Original_error"]))
+    orig_rmse = np.sqrt(np.mean(test_df["Original_error"] ** 2))
+    corr_mae = np.mean(np.abs(test_df["Corrected_error"]))
+    corr_rmse = np.sqrt(np.mean(test_df["Corrected_error"] ** 2))
+
     # Histogram of original errors
-    axes[0].hist(test_df["Original_error"], bins=50, color='lightblue', edgecolor='blue', alpha=0.7)
+    axes[0].hist(test_df["Original_error"], bins=50, color='#21918c', edgecolor='#21918c', alpha=0.7)
     axes[0].axvline(0, color='black', linestyle='--')
-    axes[0].set_xlabel('Residual (Obs - Calc)')
+    axes[0].set_xlabel(r'Residual ($\it{Obs-Calc}$)')
     axes[0].set_ylabel('Count')
-    axes[0].set_title('Original IE Method Residuals')
+    axes[0].text(
+        0.05, 0.95,
+        r"$\mathbf{{Original\ IE}}$"
+        f"\nMAE: {orig_mae:.4f}\n"
+        f"RMSE: {orig_rmse:.4f}",
+        transform=axes[0].transAxes,
+        fontsize=12,
+        va='top',
+        ha='left',
+        bbox=dict(facecolor='white', alpha=0.7, edgecolor='none')
+    )
 
     # Histogram of corrected errors
-    axes[1].hist(test_df["Corrected_error"], bins=50, color='lightgreen', edgecolor='green', alpha=0.7)
+    axes[1].hist(test_df["Corrected_error"], bins=50, color='#440154', edgecolor='#440154', alpha=0.7)
     axes[1].axvline(0, color='black', linestyle='--')
-    axes[1].set_xlabel('Residual (Obs - Calc)')
-    axes[1].set_title('Residuals after ML Correction')
+    axes[1].set_xlabel(r'Residual ($\it{Obs-Calc}$)')
+    axes[1].text(
+        0.05, 0.95,
+        r"$\mathbf{{After\ ML\ Correction}}$"
+        f"\nMAE: {corr_mae:.4f}\n"
+        f"RMSE: {corr_rmse:.4f}",
+        transform=axes[1].transAxes,
+        fontsize=12,
+        va='top',
+        ha='left',
+        bbox=dict(facecolor='white', alpha=0.7, edgecolor='none')
+    )
 
-    for ax in axes:
-        ax.set_xlim(-0.15, 0.15)
+
+    axes[0].set_xlim(-0.1, 0.1)
+    axes[1].set_xlim(-0.099, 0.1)    
 
     plt.subplots_adjust(wspace=0)
     if output_dir:

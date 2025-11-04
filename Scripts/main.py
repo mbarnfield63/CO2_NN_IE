@@ -1,34 +1,42 @@
+import matplotlib as mpl
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import seaborn as sns
 import time
 import torch
-import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
-from sklearn.model_selection import KFold, train_test_split
-from sklearn.preprocessing import StandardScaler
+from torch.utils.data import DataLoader
+from torch import optim
 
-from analysis import (
-    analyze_isotopologue_errors,
-    save_isotopologue_error_report
-)
-from plotting import (
-    plot_loss,
-    plot_predictions_vs_true,
-    plot_mae_bars,
-    plot_metrics_bars,
-    plot_iso_residuals_all,
-    plot_iso_residuals_individual,
-    plot_residuals_boxplot,
-    plot_hist_error_energy
-)
+from model_utils import *
+from analysis import *
+from plotting import *
 
-# ======================
-# Config
-# ======================
-DATA_FILE = "Data/CO_CO2_combined.csv"
-OUTPUT_DIR = "Data/Outputs"
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# === Plotting parameters
+thesis_params = {"xtick.minor.visible": True,
+                    "xtick.major.pad":5,
+                    "xtick.direction":"in",
+                    "xtick.top":True,
+                    "ytick.minor.visible": True,
+                    "ytick.direction":"in",
+                    "ytick.right":True,
+                    "font.family":"DejaVu Sans",
+                    "font.size":14.0,
+                    "lines.linewidth":2,
+                    "legend.frameon":False,
+                    "legend.labelspacing":0,
+                    "legend.borderpad":0.5,
+                }
+sns.set_theme(style='ticks', rc=thesis_params)
+mpl.rcParams.update(thesis_params)
+
+# === Setup
+start_time = time.time()
+print("Time start:", time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(start_time)))
+print("Current device:", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU")
+
+# === Config
+DATA_PATH = "Data/CO_CO2_combined.csv"
 BATCH_SIZE = 512
 EPOCHS = 100
 LR = 5e-4
