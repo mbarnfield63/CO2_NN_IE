@@ -1,7 +1,10 @@
+import matplotlib as mpl
+import matplotlib.pyplot as plt
 import numpy as np
 import os
 import pandas as pd
 import random
+import seaborn as sns
 import time
 import torch
 from torch.utils.data import DataLoader
@@ -10,6 +13,24 @@ from torch import optim
 from model_utils import *
 from analysis import *
 from plotting import *
+
+# === Plotting parameters
+thesis_params = {"xtick.minor.visible": True,
+                    "xtick.major.pad":5,
+                    "xtick.direction":"in",
+                    "xtick.top":True,
+                    "ytick.minor.visible": True,
+                    "ytick.direction":"in",
+                    "ytick.right":True,
+                    "font.family":"DejaVu Sans",
+                    "font.size":14.0,
+                    "lines.linewidth":2,
+                    "legend.frameon":False,
+                    "legend.labelspacing":0,
+                    "legend.borderpad":0.5,
+                }
+sns.set_theme(style='ticks', rc=thesis_params)
+mpl.rcParams.update(thesis_params)
 
 # === Setup
 start_time = time.time()

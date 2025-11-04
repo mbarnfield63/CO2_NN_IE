@@ -1,12 +1,12 @@
-# cv.py  -- robust cross-validation with fold-specific scaling and bias init
-import os
+import matplotlib as mpl
 import numpy as np
 import pandas as pd
+import os
+from sklearn.model_selection import KFold
+from sklearn.preprocessing import StandardScaler
 import torch
 from torch.utils.data import DataLoader
 from torch import optim
-from sklearn.model_selection import KFold
-from sklearn.preprocessing import StandardScaler
 
 from model_utils import (
     CO2Dataset,
@@ -15,9 +15,26 @@ from model_utils import (
     get_predictions,
     train_and_return_debug,
 )
-from plotting import plot_predictions_vs_true
+from plotting import plot_predictions_vs_true_cv
 
-# === Config (match main.py feature list exactly)
+# === Plotting parameters
+thesis_params = {"xtick.minor.visible": True,
+                    "xtick.major.pad":5,
+                    "xtick.direction":"in",
+                    "xtick.top":True,
+                    "ytick.minor.visible": True,
+                    "ytick.direction":"in",
+                    "ytick.right":True,
+                    "font.family":"DejaVu Sans",
+                    "font.size":14.0,
+                    "lines.linewidth":2,
+                    "legend.frameon":False,
+                    "legend.labelspacing":0,
+                    "legend.borderpad":0.5,
+                }
+mpl.rcParams.update(thesis_params)
+
+# === Config
 DATA_PATH = "Data/CO2_minor_isos_ma.txt"
 OUTPUT_DIR = "Data/Outputs/"
 FEATURE_COLS = [
@@ -154,5 +171,5 @@ print(f"MAE: {results_df['val_mae'].mean():.6f} ± {results_df['val_mae'].std():
 all_preds_df = pd.concat(all_preds, ignore_index=True)
 all_preds_df.to_csv(os.path.join(OUTPUT_DIR, "CSVs/cv_predictions.csv"), index=False)
 
-plot_predictions_vs_true(None, None, OUTPUT_DIR, cv=True, all_preds_df=all_preds_df)
+plot_predictions_vs_true_cv(all_preds_df, OUTPUT_DIR, metrics=True)
 print(f"\nResults and plots saved to {OUTPUT_DIR}")
