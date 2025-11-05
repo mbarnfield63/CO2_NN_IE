@@ -325,7 +325,7 @@ def get_feature_importance(
     feature_cols: list[str],
     output_dir: str | None = None,
     seed: int = 42,
-    metric: str = "rmse",
+    metric: str = "mae",
 ):
     """
     Permutation feature importance for regression.
