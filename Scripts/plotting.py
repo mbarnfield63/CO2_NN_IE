@@ -201,17 +201,22 @@ def plot_iso_residuals_individual(test_df, energy_col='E_Ma_iso', output_dir=Non
 
 def plot_feature_importance(df, output_dir):
     os.makedirs(os.path.join(output_dir, "Plots/Features"), exist_ok=True)
-
     sorted_df = df.sort_values("importance", ascending=True)
+    n_features = len(sorted_df)
 
-    plt.figure(figsize=(12, 8))
-    sorted_df.plot(kind="bar", legend=False, color="teal", y="importance", x="feature")
-    plt.xticks(rotation=45, ha="right")
-    plt.title("Permutation Feature Importance (RMSE Increase)")
-    plt.xlabel("Importance Score")
-    plt.ylabel("Feature")
+    fig, ax = plt.subplots(figsize=(15, 8))
+    # Create bar plot
+    ax.bar(range(n_features), sorted_df["importance"].values, color="teal")
+    # Set x-ticks with better spacing
+    ax.set_xticks(range(n_features))
+    ax.set_xticklabels(sorted_df["feature"].values, rotation=45, ha="right", fontsize=10)
+    ax.grid(axis="y", alpha=0.3)
+    ax.tick_params(axis='x', which='both', bottom=False, top=False)
+    ax.set_xlabel("Feature", fontsize=12)
+    ax.set_ylabel("Importance (MAE Increase)", fontsize=12)
     plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, "Plots/Features/feature_importance.png"), dpi=300, bbox_inches="tight")
+    plt.savefig(os.path.join(output_dir, "Plots/Features/feature_importance.png"), 
+                dpi=300, bbox_inches="tight")
     plt.close()
 
 
