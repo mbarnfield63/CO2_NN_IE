@@ -32,9 +32,9 @@ def plot_predictions_vs_true(y_true, y_pred, output_dir, metrics=True):
                     verticalalignment='top')
     sns.lineplot(x=[-0.125, 0.125], y=[-0.125, 0.125], linestyle='--', lw=2, color='black')
     plt.xlabel("True Residual (Original IE)")
-    plt.xlim(-0.125, 0.125)
+    #plt.xlim(-0.125, 0.125)
     plt.ylabel("Predicted Residual (ML Correction)")
-    plt.ylim(-0.125, 0.125)
+    #plt.ylim(-0.125, 0.125)
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, "Plots/Errors/pred_vs_true.png"), dpi=300, bbox_inches='tight')
     plt.close()
@@ -60,98 +60,134 @@ def plot_predictions_vs_true_cv(all_preds_df, output_dir, metrics=True):
     plt.savefig(os.path.join(output_dir, "Plots/Errors/pred_vs_true_cv.png"), dpi=300, bbox_inches='tight')
     plt.close()
 
-
-def plot_iso_residuals_all(test_df, overall_pct_improvement, energy_col='E_Ma_iso', n_col=3, output_dir=None):
+def plot_iso_residuals_all(test_df, overall_pct_improvement, energy_col='E_Ma_iso', output_dir=None):
     """
     Plot energy distributions based on the original energy values for each isotopologue.
+    Layout:
+    X B C
+    A B C
+    
+    Where X is legend, A=36, B=27,37, C=28,38
     """
-    # Get unique isotopologues
-    all_isos = sorted(test_df['iso'].unique())
-
-    # Calculate grid dimensions
-    n_isos = len(all_isos)
-    n_rows = (n_isos + n_col - 1) // n_col
-
-    # Get overall energy range for consistent x-axis limits
-    energy_min = 0
-    energy_max = 14000
-
-    # Create figure and subplots
-    fig, axes = plt.subplots(n_rows, n_col, sharex=False, sharey=True, figsize=(5*n_col, 4*n_rows))
-    if n_rows == 1:
-        axes = axes.reshape(1, -1)
-    elif n_col == 1:
-        axes = axes.reshape(-1, 1)
-
+    # Define the layout
+    layout = {
+        (0, 0): 'Legend',
+        (0, 1): [27],
+        (0, 2): [28],
+        (1, 0): [36],
+        (1, 1): [37],
+        (1, 2): [38]
+    }
+    
+    # Create figure with 2 rows, 3 columns
+    fig, axes = plt.subplots(2, 3, figsize=(15, 8))
+    
     colors = ['#21918c', '#440154']
-
-    for idx, iso in enumerate(all_isos):
-        row = idx // n_col
-        col = idx % n_col
+    
+    # Get energy range for each column
+    col_energy_ranges = {}
+    for col in range(3):
+        isos_in_col = []
+        for row in range(2):
+            if (row, col) in layout and layout[(row, col)] != 'Legend':
+                isos_in_col.extend(layout[(row, col)])
+        
+        if isos_in_col:
+            col_mask = test_df['iso'].isin(isos_in_col)
+            col_energy_ranges[col] = (
+                test_df.loc[col_mask, energy_col].min(),
+                test_df.loc[col_mask, energy_col].max()
+            )
+    
+    # Plot each cell according to layout
+    for (row, col), content in layout.items():
         ax = axes[row, col]
         
-        # Get mask for current isotopologue
-        iso_mask = test_df['iso'] == iso
+        if content == 'Legend':
+            # Legend in top-left
+            ax.axis('off')
+            
+            # Create dummy plots for legend
+            dummy_ax = fig.add_subplot(111, frame_on=False)
+            dummy_ax.scatter([], [], s=10, alpha=0.7, color=colors[0], marker='^',
+                            label='Original IE Method')
+            dummy_ax.scatter([], [], s=10, alpha=0.7, color=colors[1], marker='o',
+                            label='IE + ML Correction')
+            dummy_ax.axis('off')
+            
+            handles, labels = dummy_ax.get_legend_handles_labels()
+            ax.legend(handles, labels, loc='center', fontsize=20,
+                        handlelength=2, handletextpad=0.75, markerscale=5)
+            
+            mae_reduction_text = f"Overall Residuals Reduction\n{overall_pct_improvement:.2f}%"
+            ax.text(0.5, 0.35, mae_reduction_text, transform=ax.transAxes,
+                    fontsize=20, va='top', ha='center')
+            
+            dummy_ax.remove()
+            continue
         
-        ax.scatter(
-            test_df.loc[iso_mask, energy_col],
-            test_df["Original_error"][iso_mask],  # E_IE - E_Ma_iso
-            s=10, alpha=0.7, color=colors[0], marker='^',
-            label='Original IE Method',
+        # Plot isotopes
+        for iso in content:
+            iso_mask = test_df['iso'] == iso
+            
+            ax.scatter(
+                test_df.loc[iso_mask, energy_col],
+                test_df["Original_error"][iso_mask],
+                s=10, alpha=0.7, color=colors[0], marker='^',
+                label='Original IE Method' if iso == content[0] else '',
             )
-        ax.scatter(
-            test_df.loc[iso_mask, energy_col],
-            test_df["Corrected_error"][iso_mask],  # E_IE_corrected - E_Ma_iso
-            s=10, alpha=0.7, color=colors[1], marker='o',
-            label='IE + ML Correction',
-        )
+            ax.scatter(
+                test_df.loc[iso_mask, energy_col],
+                test_df["Corrected_error"][iso_mask],
+                s=10, alpha=0.7, color=colors[1], marker='o',
+                label='IE + ML Correction' if iso == content[0] else '',
+            )
+            
+            # Calculate mean reduction for this isotope
+            mean_reduction = 100 * (test_df["Original_abs_error"][iso_mask].mean() - \
+                                    test_df["Corrected_abs_error"][iso_mask].mean()) / \
+                                    test_df["Original_abs_error"][iso_mask].mean()
+            
+            # Position text appropriately for single vs multiple isos
+            y_pos = 0.95 if len(content) == 1 else 0.95 + (content.index(iso) * 0.15)
+            ax.text(0.3, y_pos, f'Iso: {iso}\nReduction: {mean_reduction:.2f}%',
+                    transform=ax.transAxes, fontsize=16, va='top')
+        
         ax.axhline(0, color='black', linestyle='--', linewidth=1.2, alpha=0.9)
         
-        # Calculate mean average error reduction percentage for this isotopologue
-        mean_reduction = 100 * (test_df["Original_abs_error"][iso_mask].mean() - \
-                                test_df["Corrected_abs_error"][iso_mask].mean()) / \
-                                test_df["Original_abs_error"][iso_mask].mean()
+        # x-axes
+        if col in col_energy_ranges:
+            ax.set_xlim(col_energy_ranges[col])
+        
+        if col == 0: ax.set_xlim(0, 50000)
+        elif col == 1: ax.set_xlim(0, 9000)
+        elif col == 2: ax.set_xlim(0, 45000)
+        else: pass
+        # Turn off x-tick labels on upper row
+        if row == 0:
+            ax.set_xticklabels([])
 
-        ax.text(0.05, 0.05, f'Iso: {iso}\nReduction: {mean_reduction:.2f}%',
-                transform=ax.transAxes, fontsize=16, va='bottom')
-
-        # Set consistent axis limits
-        ax.set_xlim(energy_min, energy_max)
-        if row == n_rows - 1:
+        # y-axis
+        ylim_dict = {0: (-0.5, 0.5), 1: (-0.02, 0.02), 2: (-0.06, 0.06)}
+        if col in ylim_dict:
+            ax.set_ylim(ylim_dict[col])
+        
+        # Labels
+        if row == 1:  # Bottom row
             ax.set_xlabel(r'MARVEL Energy cm$\mathregular{^{-1}}$')
-        ax.set_ylim(-0.15, 0.15)
-        if col == 0:
+        if col == 0:  # Left column
             ax.set_ylabel(r'Residual ($\it{Obs-Calc}$)')
+        
         ax.grid(True, alpha=0.3)
-
-    # Add legend to the last row, last column axis
-    penultimate_ax = axes[-1, -2]
-    final_ax = axes[-1, -1]
-    axes[-1, -1].axis('off')
-    handles, labels = axes[0, 0].get_legend_handles_labels()
-    penultimate_ax.legend(
-        handles,
-        labels,
-        loc='center',
-        fontsize=20,
-        handlelength=2,
-        handletextpad=0.75,
-        markerscale=5,
-    )
-
-    mae_reduction_text = f"Overall Residuals Reduction\n{overall_pct_improvement:.2f}%"
-    final_ax.text(0.5, 0.575, mae_reduction_text, transform=final_ax.transAxes,
-                        fontsize=20, va='top', ha='center')
     
     plt.tight_layout()
-    plt.subplots_adjust(hspace=0.0, wspace=0.0)
-
+    plt.subplots_adjust(hspace=0, wspace=0.3)  # Gap between columns
+    
     if output_dir:
         os.makedirs(os.path.join(output_dir, "Plots/Isotopologues"), exist_ok=True)
         plt.savefig(os.path.join(output_dir, "Plots/Isotopologues/isotopologue_residuals.png"),
                     dpi=300, bbox_inches='tight')
     plt.close()
-
 
 def plot_iso_residuals_individual(test_df, energy_col='E_Ma_iso', output_dir=None):
     """
@@ -187,7 +223,7 @@ def plot_iso_residuals_individual(test_df, energy_col='E_Ma_iso', output_dir=Non
 
         plt.xlabel(r'MARVEL Energy cm$\mathregular{^{-1}}$')
         plt.ylabel(r'Residual ($\it{Obs-Calc}$)')
-        plt.ylim(-max_error, max_error)
+        #plt.ylim(-max_error, max_error)
         plt.grid(True, alpha=0.3)
         plt.legend()
         plt.tight_layout()
@@ -266,7 +302,7 @@ def plot_metrics_bars(results, output_dir, figsize=(12, 5)):
     axes[0].set_xticks(x + width * (len(maes)-1) / 2)
     axes[0].set_xticklabels(isotopologues, rotation=45, ha='center')
     axes[0].set_ylabel("MAE")
-    axes[0].set_ylim(0, 0.03)
+    axes[0].set_ylim(0, 0.05)
     axes[0].legend(loc='upper left')
     axes[0].grid(axis="y")
     axes[0].tick_params(axis='x', which='both', bottom=False, top=False)
@@ -283,7 +319,7 @@ def plot_metrics_bars(results, output_dir, figsize=(12, 5)):
     axes[1].set_xticks(x + width * (len(rmses)-1) / 2)
     axes[1].set_xticklabels(isotopologues, rotation=45, ha='center')
     axes[1].set_ylabel("RMSE")
-    axes[1].set_ylim(0, 0.04)
+    axes[1].set_ylim(0, 0.08)
     axes[1].legend(loc='upper left')
     axes[1].grid(axis="y")
     axes[1].tick_params(axis='x', which='both', bottom=False, top=False)
@@ -388,8 +424,8 @@ def plot_hist_error_energy(test_df, energy_col='E_Ma_iso', output_dir=None):
     )
 
 
-    axes[0].set_xlim(-0.1, 0.1)
-    axes[1].set_xlim(-0.099, 0.1)    
+    axes[0].set_xlim(-0.12, 0.12)
+    axes[1].set_xlim(-0.119, 0.12)    
 
     plt.subplots_adjust(wspace=0)
     if output_dir:
