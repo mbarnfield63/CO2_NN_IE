@@ -3,9 +3,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from sklearn.model_selection import KFold, train_test_split
+from sklearn.preprocessing import StandardScaler
 import time
 import torch
-from torch.utils.data import DataLoader
+import torch.nn as nn
+from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 from torch import optim
 
 from model_utils import *
@@ -37,12 +40,14 @@ print("Current device:", torch.cuda.get_device_name(0) if torch.cuda.is_availabl
 
 # === Config
 DATA_PATH = "Data/CO_CO2_combined.csv"
+OUTPUT_DIR = "Data/Outputs"
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 BATCH_SIZE = 512
 EPOCHS = 100
 LR = 5e-4
 VAL_FRAC = 0.2
 N_SPLITS = 5
-SEEDS = [0]
+SEEDS = [0, 1, 2, 3, 4]
 USE_SCHEDULER = True
 
 ISO_WEIGHTS = {
@@ -288,7 +293,7 @@ def main():
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
 
-        df = pd.read_csv(DATA_FILE)
+        df = pd.read_csv(DATA_PATH)
         df = df[df["Error_IE"].abs() <= 1]
         df["iso_idx"] = df["iso"].astype("category").cat.codes
         
@@ -299,6 +304,10 @@ def main():
         kf = KFold(n_splits=N_SPLITS, shuffle=True, random_state=seed)
         fold_results = []
         all_test_results = []
+        
+        # Accumulate ALL predictions and true values across folds
+        all_y_true = []
+        all_y_pred = []
 
         for fold, (trainval_idx, test_idx) in enumerate(kf.split(df)):
             print(f"\n=== Fold {fold+1}/{N_SPLITS} (Seed {seed}) ===")
@@ -364,29 +373,90 @@ def main():
             test_df_copy["Original_abs_error"] = np.abs(test_df_copy["Original_error"])
             test_df_copy["Corrected_abs_error"] = np.abs(test_df_copy["Corrected_error"])
             all_test_results.append(test_df_copy)
-
-            # Save final fold model and create plots for last seed
-            if seed_idx == len(SEEDS) - 1 and fold == N_SPLITS - 1:
-                final_model = model
-                final_train_losses = train_loss
-                final_val_losses = val_loss
-                final_test_df = test_df_copy
-                final_test_loader = test_loader
+            
+            # Get predictions for this fold and accumulate
+            y_true_fold, y_pred_fold, _, _ = get_predictions(model, test_loader, DEVICE)
+            all_y_true.append(y_true_fold)
+            all_y_pred.append(y_pred_fold)
 
         # Aggregate results for this seed
         results_df = pd.concat(all_test_results, ignore_index=True)
+        
+        # Concatenate all predictions across folds
+        all_y_true_combined = np.concatenate(all_y_true)
+        all_y_pred_combined = np.concatenate(all_y_pred)
+        
         # Filter for CO isotopologues only (2 digits)
         co_results_df = results_df[results_df["iso"].apply(lambda x: len(str(x)) == 2)].copy()
+        co_mask = results_df["iso"].apply(lambda x: len(str(x)) == 2).values
+        y_true_co = all_y_true_combined[co_mask]
+        y_pred_co = all_y_pred_combined[co_mask]
+        
         seed_summary = {}
         print(f"\nSeed {seed} - CO Isotopologue Summary:")
         for iso in sorted(co_results_df["iso"].unique()):
             sub = co_results_df[co_results_df["iso"] == iso]
             orig_mae = sub["Original_abs_error"].mean()
             corr_mae = sub["Corrected_abs_error"].mean()
-            improvement = 100 * (orig_mae - corr_mae) / orig_mae
-            seed_summary[iso] = improvement
-            print(f"  Iso {iso}: {improvement:+.2f}%")
+            orig_rmse = np.sqrt(np.mean(sub["Original_error"] ** 2))
+            corr_rmse = np.sqrt(np.mean(sub["Corrected_error"] ** 2))
+            mae_improvement = 100 * (orig_mae - corr_mae) / orig_mae
+            rmse_improvement = 100 * (orig_rmse - corr_rmse) / orig_rmse
+            seed_summary[iso] = {
+            "mae_improvement": mae_improvement,
+            "rmse_improvement": rmse_improvement
+            }
+            print(f"  Iso {iso}: MAE {mae_improvement:+.2f}%, RMSE {rmse_improvement:+.2f}%")
         all_seed_results.append(seed_summary)
+        
+        if seed_idx == len(SEEDS) - 1:
+            print("\n" + "=" * 60)
+            print("GENERATING PLOTS (ALL FOLDS, CO ISOTOPOLOGUES ONLY):")
+            print("=" * 60)
+            
+            # Save model from last fold
+            os.makedirs("Models", exist_ok=True)
+            torch.save(model.state_dict(), "Models/co_correction_model.pt")
+            print("Model saved to Models/co_correction_model.pt")
+            
+            print("\nPlotting results from all folds...")
+            plot_predictions_vs_true(y_true_co, y_pred_co, OUTPUT_DIR)
+            
+            # Isotopologue analysis
+            print("\nAnalyzing CO isotopologue-specific errors...")
+            iso_results = analyze_isotopologue_errors(co_results_df)
+            iso_df = save_isotopologue_error_report(iso_results, OUTPUT_DIR)
+            print(iso_df)
+            
+            # Isotopologue plots
+            plot_mae_bars(iso_results, OUTPUT_DIR)
+            plot_metrics_bars(iso_results, OUTPUT_DIR)
+            
+            # Calculate overall improvement for CO isotopologues
+            overall_pct_improvement = 100 * (co_results_df['Original_abs_error'].mean() - 
+                                                co_results_df['Corrected_abs_error'].mean()) / \
+                                                co_results_df['Original_abs_error'].mean()
+            co_results_df['Error_reduction_pct'] = 100 * (co_results_df['Original_abs_error'] - 
+                                                            co_results_df['Corrected_abs_error']) / \
+                                                            co_results_df['Original_abs_error']
+            
+            print(f"\nCO Isotopologues - Original MAE: {co_results_df['Original_abs_error'].mean():.6f}")
+            print(f"CO Isotopologues - Corrected MAE: {co_results_df['Corrected_abs_error'].mean():.6f}")
+            print(f"CO Isotopologues - Overall MAE Improvement: {overall_pct_improvement:.2f}%")
+            
+            improved_samples = (co_results_df['Error_reduction_pct'] > 0).sum()
+            print(f"Samples with improvement: {improved_samples}/{len(co_results_df)} "
+                    f"({100*improved_samples/len(co_results_df):.2f}%)")
+            
+            # Residual plots for CO isotopologues
+            plot_iso_residuals_all(co_results_df, overall_pct_improvement, output_dir=OUTPUT_DIR)
+            plot_iso_residuals_individual(co_results_df, output_dir=OUTPUT_DIR)
+            plot_residuals_boxplot(co_results_df, output_dir=OUTPUT_DIR)
+            plot_hist_error_energy(co_results_df, energy_col='E_Ma_iso', output_dir=OUTPUT_DIR)
+            
+            # Save final results
+            os.makedirs(os.path.join(OUTPUT_DIR, "CSVs"), exist_ok=True)
+            co_results_df.to_csv(os.path.join(OUTPUT_DIR, "CSVs/test_predictions_co_all_folds.csv"), index=False)
 
     # ======================
     # Final Summary Across Seeds
@@ -396,74 +466,15 @@ def main():
     print("=" * 60)
 
     all_isos = sorted({iso for d in all_seed_results for iso in d.keys()})
+    print("\nIsotopologue-wise MAE and RMSE improvement across seeds:")
     for iso in all_isos:
-        vals = [d[iso] for d in all_seed_results if iso in d]
-        mean_val = np.mean(vals)
-        std_val = np.std(vals)
-        print(f"Iso {iso}: {mean_val:+.2f}% ± {std_val:.2f}%")
-
-    # ======================
-    # Final Plots (Last Seed, CO Only)
-    # ======================
-    print("\n" + "=" * 60)
-    print("GENERATING PLOTS (FINAL SEED, CO ISOTOPOLOGUES ONLY):")
-    print("=" * 60)
-
-    # Save final model
-    os.makedirs("Models", exist_ok=True)
-    torch.save(final_model.state_dict(), "Models/co_correction_model.pt")
-    print("Model saved to Models/co_correction_model.pt")
-
-    # Filter for CO isotopologues
-    final_test_df_co = final_test_df[final_test_df["iso"].apply(lambda x: len(str(x)) == 2)].copy()
-
-    # Get predictions for plotting
-    y_true_final, y_pred_final, _, _ = get_predictions(final_model, final_test_loader, DEVICE)
-
-    # Filter predictions for CO isotopologues
-    co_mask = final_test_df["iso"].apply(lambda x: len(str(x)) == 2).values
-    y_true_co = y_true_final[co_mask]
-    y_pred_co = y_pred_final[co_mask]
-
-    print("\nPlotting results...")
-    plot_loss(final_train_losses, final_val_losses, OUTPUT_DIR)
-    plot_predictions_vs_true(y_true_co, y_pred_co, OUTPUT_DIR)
-
-    # Isotopologue analysis
-    print("\nAnalyzing CO isotopologue-specific errors...")
-    iso_results = analyze_isotopologue_errors(final_test_df_co)
-    iso_df = save_isotopologue_error_report(iso_results, OUTPUT_DIR)
-    print(iso_df)
-
-    # Isotopologue plots
-    plot_mae_bars(iso_results, OUTPUT_DIR)
-    plot_metrics_bars(iso_results, OUTPUT_DIR)
-
-    # Calculate overall improvement for CO isotopologues
-    overall_pct_improvement = 100 * (final_test_df_co['Original_abs_error'].mean() - 
-                                        final_test_df_co['Corrected_abs_error'].mean()) / \
-                                        final_test_df_co['Original_abs_error'].mean()
-    final_test_df_co['Error_reduction_pct'] = 100 * (final_test_df_co['Original_abs_error'] - 
-                                                        final_test_df_co['Corrected_abs_error']) / \
-                                                        final_test_df_co['Original_abs_error']
-
-    print(f"\nCO Isotopologues - Original MAE: {final_test_df_co['Original_abs_error'].mean():.6f}")
-    print(f"CO Isotopologues - Corrected MAE: {final_test_df_co['Corrected_abs_error'].mean():.6f}")
-    print(f"CO Isotopologues - Overall MAE Improvement: {overall_pct_improvement:.2f}%")
-
-    improved_samples = (final_test_df_co['Error_reduction_pct'] > 0).sum()
-    print(f"Samples with improvement: {improved_samples}/{len(final_test_df_co)} "
-            f"({100*improved_samples/len(final_test_df_co):.2f}%)")
-
-    # Residual plots for CO isotopologues
-    plot_iso_residuals_all(final_test_df_co, overall_pct_improvement, output_dir=OUTPUT_DIR)
-    plot_iso_residuals_individual(final_test_df_co, output_dir=OUTPUT_DIR)
-    plot_residuals_boxplot(final_test_df_co, output_dir=OUTPUT_DIR)
-    plot_hist_error_energy(final_test_df_co, energy_col='E_Ma_iso', output_dir=OUTPUT_DIR)
-
-    # Save final results
-    os.makedirs(os.path.join(OUTPUT_DIR, "CSVs"), exist_ok=True)
-    final_test_df_co.to_csv(os.path.join(OUTPUT_DIR, "CSVs/test_predictions_co.csv"), index=False)
+        mae_vals = [d[iso]["mae_improvement"] for d in all_seed_results if iso in d]
+        rmse_vals = [d[iso]["rmse_improvement"] for d in all_seed_results if iso in d]
+        mae_mean = np.mean(mae_vals)
+        mae_std = np.std(mae_vals)
+        rmse_mean = np.mean(rmse_vals)
+        rmse_std = np.std(rmse_vals)
+        print(f"Iso {iso}: MAE {mae_mean:+.2f}% ± {mae_std:.2f}%, RMSE {rmse_mean:+.2f}% ± {rmse_std:.2f}%")
 
     elapsed = time.time() - start_time
     print(f"\nTotal time for {len(SEEDS)} seeds: {elapsed/60:.2f} minutes")
